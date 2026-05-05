@@ -42,7 +42,7 @@ def create_splash():
     
     info_y = y_start + 65
     painter.drawText(x_offset, info_y, "Source: https://github.com/Farbigoz/BhModCreator")
-    painter.drawText(x_offset, info_y + 22, "Version: 0.2.6 Beta")
+    painter.drawText(x_offset, info_y + 22, "Version: 3.0.0 Beta")
     painter.drawText(x_offset, info_y + 44, "Author: I_FabrizioG_I")
     painter.drawText(x_offset, info_y + 66, "Maintainers: LordShadow505 & Bucccket")
     painter.drawText(x_offset, info_y + 100, "Discord: I_FabrizioG_I#8111")
