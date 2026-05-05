@@ -100,6 +100,8 @@ class ModButton(QWidget):
 
         return False
 
-    def __del__(self):
+    def cleanup(self):
         if self in self.buttons:
-            self.buttons.pop(self.buttons.index(self))
+            self.buttons.remove(self)
+        self.setParent(None)
+        self.deleteLater()

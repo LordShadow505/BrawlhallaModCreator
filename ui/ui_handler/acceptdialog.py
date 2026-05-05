@@ -8,11 +8,12 @@ class AcceptDialog(QWidget):
 
         self.ui = Ui_AcceptDialog()
         self.ui.setupUi(self)
+        self.ui.content.setWordWrap(True)
 
         self.mainWindow = window
 
         self.acceptMethod = lambda: None
-        self.cancelMethod = lambda: None
+        self.cancelMethod = self.hide
 
         self.ui.accept.clicked.connect(self.clickAccept)
         self.ui.cancel.clicked.connect(self.clickCancel)
@@ -32,12 +33,13 @@ class AcceptDialog(QWidget):
     def show(self):
         if self.parent() is None:
             self.setParent(self.mainWindow)
-            self.parent().layout().addWidget(self)
             self.onResize()
+            super().show()
+            self.raise_()
 
     def hide(self):
         if self.parent() is not None:
-            self.parent().layout().removeWidget(self)
+            super().hide()
             self.setParent(None)
 
     def setContent(self, content: str):

@@ -18,6 +18,7 @@ class ButtonsDialog(QWidget):
 
         self.ui = Ui_ButtonsDialog()
         self.ui.setupUi(self)
+        self.ui.content.setWordWrap(True)
 
         self.mainWindow = window
 
@@ -60,8 +61,9 @@ class ButtonsDialog(QWidget):
     def show(self):
         if self.parent() is None:
             self.setParent(self.mainWindow)
-            self.parent().layout().addWidget(self)
             self.onResize()
+            super().show()
+            self.raise_()
 
             if self.ui.content.height() <= self.maxContentHeight:
                 self.ui.scrollLabel.setMinimumHeight(self.ui.content.height())
@@ -72,7 +74,7 @@ class ButtonsDialog(QWidget):
 
     def hide(self):
         if self.parent() is not None:
-            self.parent().layout().removeWidget(self)
+            super().hide()
             self.setParent(None)
 
     def setContent(self, content: str):

@@ -7,9 +7,9 @@ GAMEBANANA = "https://gamebanana.com/tools/7445"
 
 GITHUB = "https://github.com"
 GITHUB_API = "https://api.github.com"
-REPO = "Farbigoz/BhModCreator"
+REPO = "bucccket/BrawlhallaModCreator"
 
-VERSION = "0.0.0"
+VERSION = "0.2.6"
 GIT_VERSION = None
 PRERELEASE = True
 

@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QLabel
+from PySide6.QtCore import Qt
 
 from ..ui_sources.ui_progress_dialog import Ui_ProgressDialog
 
@@ -12,6 +13,14 @@ class ProgressDialog(QWidget):
 
         self.mainWindow = window
 
+        # Skin Warning
+        self.skinWarning = QLabel("Remember that any existing skin mod requires a PAID skin, check the REQUIREMENTS section in gamebanana to find out which skin it replaces")
+        self.skinWarning.setWordWrap(True)
+        self.skinWarning.setAlignment(Qt.AlignCenter)
+        self.skinWarning.setStyleSheet("color: #FF5252; font-size: 10px; font-weight: bold; margin-top: 5px;")
+        self.ui.verticalLayout.addWidget(self.skinWarning)
+        # self.ui.content.setWordWrap(True) # Removed to keep progress on one line
+
     def onResize(self):
         self.setGeometry(0, 0, self.mainWindow.width(), self.mainWindow.height())
 
@@ -21,12 +30,13 @@ class ProgressDialog(QWidget):
     def show(self):
         if self.parent() is None:
             self.setParent(self.mainWindow)
-            self.parent().layout().addWidget(self)
             self.onResize()
+            super().show()
+            self.raise_()
 
     def hide(self):
         if self.parent() is not None:
-            self.parent().layout().removeWidget(self)
+            super().hide()
             self.setParent(None)
             self.setValue(self.ui.progressBar.minimum())
 

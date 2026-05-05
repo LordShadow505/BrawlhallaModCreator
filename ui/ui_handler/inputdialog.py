@@ -9,6 +9,7 @@ class InputDialog(QWidget):
 
         self.ui = Ui_InputDialog()
         self.ui.setupUi(self)
+        self.ui.content.setWordWrap(True)
 
         self.mainWindow = window
 
@@ -33,12 +34,13 @@ class InputDialog(QWidget):
     def show(self):
         if self.parent() is None:
             self.setParent(self.mainWindow)
-            self.parent().layout().addWidget(self)
             self.onResize()
+            super().show()
+            self.raise_()
 
     def hide(self):
         if self.parent() is not None:
-            self.parent().layout().removeWidget(self)
+            super().hide()
             self.setParent(None)
 
     def getInput(self):

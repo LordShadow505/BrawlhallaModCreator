@@ -1,7 +1,7 @@
 from typing import List, Dict
 
-from PySide6.QtWidgets import QWidget, QFileDialog, QFrame, QVBoxLayout, QApplication
-from PySide6.QtGui import QPaintEvent, QPixmap, QColor
+from PySide6.QtWidgets import QWidget, QFileDialog, QFrame, QVBoxLayout, QHBoxLayout, QApplication, QPushButton, QLabel
+from PySide6.QtGui import QPaintEvent, QPixmap, QColor, QFont, QIcon, QCursor
 from PySide6.QtCore import QEvent, Qt, QTimer, QSize
 
 from .modclass import ModClass
@@ -90,7 +90,7 @@ class SetPreview(QWidget):
 
     def clearPreview(self):
         self.preview = None
-        self.ui.preview.setPixmap(None)
+        self.ui.preview.setPixmap(QPixmap())
         self.updateButtons()
         self.resizeEvent(None)
 
@@ -142,12 +142,21 @@ class Mods(QWidget):
 
     currentGameVersion = ""
 
-    def __init__(self, saveMethod, installMethod, uninstallMethod, deleteMethod, buildMethod, createMethod,
-                 reloadMethod, openFolderMethod):
+    def __init__(self, saveMethod, installMethod, uninstallMethod, reinstallMethod, deleteMethod, buildMethod, createMethod,
+                 reloadMethod, openFolderMethod, uninstallAllMethod):
         super().__init__()
 
         self.ui = Ui_Mods()
         self.ui.setupUi(self)
+
+        self.setStyleSheet("""
+            QToolTip {
+                background-color: #242529;
+                color: #ffffff;
+                border: 1px solid #404146;
+                padding: 4px;
+            }
+        """)
 
         bodyWidget = QWidget()
         self.body = Ui_ModCreator()
@@ -159,6 +168,24 @@ class Mods(QWidget):
         self.actions.setupUi(actionsWidget)
 
         self.actions.uninstall.setParent(None)
+
+        self.actions.reinstall = QPushButton(self.actions.topButtons)
+        self.actions.reinstall.setObjectName(u"reinstall")
+        self.actions.reinstall.setMinimumSize(QSize(0, 40))
+        self.actions.reinstall.setMaximumSize(QSize(16777215, 40))
+        font = QFont()
+        font.setPointSize(11)
+        self.actions.reinstall.setFont(font)
+        self.actions.reinstall.setCursor(QCursor(Qt.PointingHandCursor))
+        self.actions.reinstall.setStyleSheet(u"QPushButton{\n"
+                                             "background-color: #CD33C7;\n"
+                                             "}")
+        icon = QIcon()
+        icon.addFile(u":/icons/resources/icons/UpdateModsTable.png", QSize(), QIcon.Normal, QIcon.Off)
+        self.actions.reinstall.setIcon(icon)
+        self.actions.reinstall.setIconSize(QSize(22, 22))
+        self.actions.reinstall.setText("Reinstall")
+        self.actions.reinstall.setParent(None)
 
         self.ui.createModFrame.setMaximumHeight(30)
         self.ui.modsBuildActions.setMaximumHeight(95)
@@ -187,6 +214,24 @@ class Mods(QWidget):
         self.body.tags.installEventFilter(self)
         self.ui.modBody.installEventFilter(self)
 
+        # Warning Notice
+        self.warningFrame = QFrame()
+        self.warningFrame.setStyleSheet("background-color: #1D1E20; border-bottom: 1px solid #333333;")
+        warningLayout = QHBoxLayout(self.warningFrame)
+        warningLayout.setContentsMargins(10, 5, 10, 5)
+        warningLayout.setSpacing(10)
+
+        warningIconLabel = QLabel()
+        warningIconLabel.setPixmap(QIcon(":/icons/resources/icons/Warning.png").pixmap(16, 16))
+        warningLayout.addWidget(warningIconLabel)
+
+        warningTextLabel = QLabel("Remember that any existing skin mod requires a PAID skin, check the REQUIREMENTS section in GameBanana to find out which skin it replaces.")
+        warningTextLabel.setWordWrap(True)
+        warningTextLabel.setStyleSheet("color: #FF5252; font-size: 10px; font-weight: bold; border: none;")
+        warningLayout.addWidget(warningTextLabel, 1)
+
+        self.ui.verticalLayout.insertWidget(0, self.warningFrame)
+
         modsListFrame = QFrame()
         layout = QVBoxLayout(modsListFrame)
         layout.setSpacing(0)
@@ -210,13 +255,38 @@ class Mods(QWidget):
         self.saveTimer.timeout.connect(saveMethod)
         self.actions.install.clicked.connect(installMethod)
         self.actions.uninstall.clicked.connect(uninstallMethod)
+        self.actions.reinstall.clicked.connect(reinstallMethod)
         self.actions.deleteMod.clicked.connect(deleteMethod)
         self.actions.build.clicked.connect(buildMethod)
         self.ui.createMod.clicked.connect(createMethod)
         self.ui.reloadModsList.clicked.connect(reloadMethod)
         self.ui.openModsFolderButton.clicked.connect(openFolderMethod)
+        
+        # New Uninstall All Button
+        self.ui.uninstallAllMods = QPushButton(self.ui.leftButtons)
+        self.ui.uninstallAllMods.setMinimumSize(QSize(30, 30))
+        self.ui.uninstallAllMods.setCursor(Qt.PointingHandCursor)
+        self.ui.uninstallAllMods.setIcon(QIcon(":/icons/resources/icons/UninstallAllMods.png"))
+        self.ui.uninstallAllMods.setToolTip("Uninstall all mods from game")
+        self.ui.horizontalLayout_4.insertWidget(2, self.ui.uninstallAllMods)
+        self.ui.uninstallAllMods.clicked.connect(uninstallAllMethod)
+        
+        self.ui.deleteAllMods.setIcon(QIcon(":/icons/resources/icons/Delete.png"))
+        self.ui.deleteAllMods.setToolTip("Delete all mods from list")
+        self.actions.deleteMod.setIcon(QIcon(":/icons/resources/icons/Delete.png"))
+        
+        # Sort Dropdown
+        self.ui.modsSortButton.clicked.connect(self.showSortMenu)
+        
+        # Deprecated update button
+        self.ui.updateAllMods.setIcon(QIcon())
+        self.ui.updateAllMods.setEnabled(False)
+        self.ui.updateAllMods.hide()
 
         self.ui.searchArea.textChanged.connect(self.searchEvent)
+
+        self.nameSortReverse = False
+        self.dateSortReverse = True
 
         self.oldSize = (0, 0)
 
@@ -284,6 +354,8 @@ class Mods(QWidget):
                 layout.removeWidget(child.widget())
 
         if modSource.installed:
+            if modSource.modFileExist:
+                AddToFrame(self.actions.topButtons, self.actions.reinstall)
             AddToFrame(self.actions.topButtons, self.actions.uninstall)
         elif modSource.modFileExist:
             AddToFrame(self.actions.topButtons, self.actions.install)
@@ -510,7 +582,8 @@ class Mods(QWidget):
                #installed: bool,
                currentVersion: bool,
                #modFileExist: bool
-               modSourcesPath: str):
+               modSourcesPath: str,
+               date: float = 0.0):
 
         modSources = ModClass(gameVersion=gameVersion,
                               name=name,
@@ -524,7 +597,8 @@ class Mods(QWidget):
                               installed=False,
                               currentVersion=currentVersion,
                               modFileExist=False,
-                              modSourcesPath=modSourcesPath)
+                              modSourcesPath=modSourcesPath,
+                              date=date)
 
         self.modsSources[hash] = modSources
         self.addModButton(modSources)
@@ -539,18 +613,78 @@ class Mods(QWidget):
         if modSources is not None:
             modSources.installed = installed
             modSources.modFileExist = modFileExist
+            
+            # Update the button in the list if it exists
+            for btn in self.modsButtons:
+                if btn.modClass.hash == hash:
+                    btn.updateData()
+                    break
 
     def removeAllMods(self):
         ClearFrame(self.modsList)
 
         self.selectedModButton = None
         for modButton in self.modsButtons:
-            modButton.__del__()
-            del modButton
+            modButton.cleanup()
         self.modsButtons.clear()
+
+        # Clear global preview cache to free up RAM
+        SetPreview.cachedPreviews.clear()
 
         for modSource in self.modsSources.values():
             del modSource
         self.modsSources.clear()
 
         self.saveTimer.stop()
+
+    def showSortMenu(self):
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QAction
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #242529;
+                color: #ffffff;
+                border: 1px solid #404146;
+            }
+            QMenu::item:selected {
+                background-color: #7E57C2;
+                color: #ffffff;
+            }
+        """)
+        
+        az_action = QAction("A-Z", self)
+        az_action.triggered.connect(lambda: self.applySort("Name", False))
+        
+        za_action = QAction("Z-A", self)
+        za_action.triggered.connect(lambda: self.applySort("Name", True))
+        
+        newest_action = QAction("Newest to Oldest", self)
+        newest_action.triggered.connect(lambda: self.applySort("Date", True))
+        
+        oldest_action = QAction("Oldest to Newest", self)
+        oldest_action.triggered.connect(lambda: self.applySort("Date", False))
+        
+        menu.addAction(az_action)
+        menu.addAction(za_action)
+        menu.addSeparator()
+        menu.addAction(newest_action)
+        menu.addAction(oldest_action)
+        
+        menu.exec(QCursor.pos())
+
+    def sortMods(self):
+        self.showSortMenu()
+
+    def sortByDate(self):
+        self.applySort("Date", True)
+
+    def applySort(self, field, reverse):
+        if field == "Name":
+            self.modsButtons.sort(key=lambda x: x.modClass.name.lower(), reverse=reverse)
+        elif field == "Date":
+            self.modsButtons.sort(key=lambda x: float(x.modClass.date or 0), reverse=reverse)
+
+        for modButton in self.modsButtons:
+            modButton.restore(self.modsList)

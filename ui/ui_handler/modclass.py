@@ -17,7 +17,8 @@ class ModClass:
                  installed: bool,
                  currentVersion: bool,
                  modFileExist: bool,
-                 modSourcesPath: str):
+                 modSourcesPath: str,
+                 date: float = 0.0):
         self.gameVersion = gameVersion
         self.name = name
         self.author = author
@@ -31,3 +32,4 @@ class ModClass:
         self.currentVersion = currentVersion
         self.modFileExist = modFileExist
         self.modSourcesPath = modSourcesPath
+        self.date = date
