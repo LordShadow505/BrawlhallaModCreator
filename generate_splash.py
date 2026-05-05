@@ -41,7 +41,7 @@ def create_splash():
     painter.setFont(font_info)
     
     info_y = y_start + 65
-    painter.drawText(x_offset, info_y, "Source: https://github.com/Farbigoz/BhModCreator")
+    painter.drawText(x_offset, info_y, "Source: https://github.com/LordShadow505/BrawlhallaModCreator")
     painter.drawText(x_offset, info_y + 22, "Version: 3.0.0 Beta")
     painter.drawText(x_offset, info_y + 44, "Author: I_FabrizioG_I")
     painter.drawText(x_offset, info_y + 66, "Maintainers: LordShadow505 & Bucccket")
