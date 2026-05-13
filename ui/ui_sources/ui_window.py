@@ -27,7 +27,7 @@ class Ui_Window(object):
         self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
         self.mainFrame = QFrame(self.centralwidget)
         self.mainFrame.setObjectName(u"mainFrame")
-        self.mainFrame.setStyleSheet(u"background-color: #303136;")
+        self.mainFrame.setStyleSheet(u"background-color: #1c1c1f;")
         self.mainFrame.setFrameShape(QFrame.StyledPanel)
         self.mainFrame.setFrameShadow(QFrame.Raised)
         self.verticalLayout = QVBoxLayout(self.mainFrame)

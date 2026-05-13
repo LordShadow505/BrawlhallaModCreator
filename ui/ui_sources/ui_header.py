@@ -26,7 +26,7 @@ class Ui_Header(object):
         self.verticalLayout_2.setContentsMargins(0, 0, 0, 0)
         self.buttonsFrame = QFrame(Header)
         self.buttonsFrame.setObjectName(u"buttonsFrame")
-        self.buttonsFrame.setStyleSheet(u"background-color: #121317;")
+        self.buttonsFrame.setStyleSheet(u"background-color: #0a0a0c;")
         self.buttonsFrame.setFrameShape(QFrame.StyledPanel)
         self.buttonsFrame.setFrameShadow(QFrame.Raised)
         self.horizontalLayout = QHBoxLayout(self.buttonsFrame)

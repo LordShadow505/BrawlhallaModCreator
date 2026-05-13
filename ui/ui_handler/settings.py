@@ -21,7 +21,7 @@ class SettingsFrame(QFrame):
         self.hasUnsavedChanges = False
         
         self.setObjectName("SettingsFrame")
-        self.setStyleSheet("#SettingsFrame { background-color: #242529; }")
+        self.setStyleSheet("#SettingsFrame { background-color: #151518; }")
 
         self.scrollLayout = QVBoxLayout(self)
         self.scrollLayout.setContentsMargins(0, 0, 0, 0)
@@ -181,7 +181,7 @@ class SettingsFrame(QFrame):
         edit.setMinimumHeight(32)
         edit.setStyleSheet("""
             QLineEdit {
-                background-color: #242529;
+                background-color: #151518;
                 color: #eeeeee;
                 border: 1px solid #404146;
                 border-radius: 4px;

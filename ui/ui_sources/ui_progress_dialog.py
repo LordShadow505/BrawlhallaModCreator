@@ -26,7 +26,7 @@ class Ui_ProgressDialog(object):
         self.background = QFrame(ProgressDialog)
         self.background.setObjectName(u"background")
         self.background.setStyleSheet(u"QFrame#background{\n"
-"background-color: #991E2025;\n"
+"background-color: #990a0a0c;\n"
 "}")
         self.background.setFrameShape(QFrame.StyledPanel)
         self.background.setFrameShadow(QFrame.Raised)
@@ -36,7 +36,7 @@ class Ui_ProgressDialog(object):
         self.dialogBackground.setObjectName(u"dialogBackground")
         self.dialogBackground.setMinimumSize(QSize(500, 100))
         self.dialogBackground.setStyleSheet(u"QFrame#dialogBackground{\n"
-"background-color: #1E2025;\n"
+"background-color: #0a0a0c;\n"
 "border-radius: 7px;\n"
 "}\n"
 "QLabel{\n"

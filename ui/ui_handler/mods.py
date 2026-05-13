@@ -143,15 +143,16 @@ class Mods(QWidget):
     currentGameVersion = ""
 
     def __init__(self, saveMethod, installMethod, uninstallMethod, reinstallMethod, deleteMethod, buildMethod, createMethod,
-                 reloadMethod, openFolderMethod, uninstallAllMethod):
+                 reloadMethod, openFolderMethod, uninstallAllMethod, sortCallback):
         super().__init__()
 
         self.ui = Ui_Mods()
         self.ui.setupUi(self)
+        self.sortCallback = sortCallback
 
         self.setStyleSheet("""
             QToolTip {
-                background-color: #242529;
+                background-color: #151518;
                 color: #ffffff;
                 border: 1px solid #404146;
                 padding: 4px;
@@ -644,7 +645,7 @@ class Mods(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #242529;
+                background-color: #151518;
                 color: #ffffff;
                 border: 1px solid #404146;
             }
@@ -666,11 +667,20 @@ class Mods(QWidget):
         oldest_action = QAction("Oldest to Newest", self)
         oldest_action.triggered.connect(lambda: self.applySort("Date", False))
         
+        installed_action = QAction("Installed First", self)
+        installed_action.triggered.connect(lambda: self.applySort("Installed", False))
+        
+        author_action = QAction("Author", self)
+        author_action.triggered.connect(lambda: self.applySort("Author", False))
+        
         menu.addAction(az_action)
         menu.addAction(za_action)
         menu.addSeparator()
         menu.addAction(newest_action)
         menu.addAction(oldest_action)
+        menu.addSeparator()
+        menu.addAction(installed_action)
+        menu.addAction(author_action)
         
         menu.exec(QCursor.pos())
 
@@ -685,6 +695,13 @@ class Mods(QWidget):
             self.modsButtons.sort(key=lambda x: x.modClass.name.lower(), reverse=reverse)
         elif field == "Date":
             self.modsButtons.sort(key=lambda x: float(x.modClass.date or 0), reverse=reverse)
+        elif field == "Installed":
+            self.modsButtons.sort(key=lambda x: (not x.modClass.installed, x.modClass.name.lower()))
+        elif field == "Author":
+            self.modsButtons.sort(key=lambda x: (x.modClass.author.lower(), x.modClass.name.lower()), reverse=reverse)
+
+        if self.sortCallback:
+            self.sortCallback(field, reverse)
 
         for modButton in self.modsButtons:
             modButton.restore(self.modsList)

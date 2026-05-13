@@ -18,19 +18,17 @@ def create_splash():
     
     # Draw background with a 1px margin to ensure smooth edges and no artifacts
     bg_rect = QRect(1, 1, width - 2, height - 2)
-    path = QPainterPath()
-    path.addRoundedRect(bg_rect, 15, 15)
     
-    # Clean fill
-    painter.setBrush(QBrush(QColor("#18191e")))
+    # Clean fill with flat corners
+    painter.setBrush(QBrush(QColor("#0a0a0c")))
     painter.setPen(Qt.NoPen)
-    painter.drawPath(path)
+    painter.drawRect(bg_rect)
     
     x_offset = 40
     y_start = 60
     
     # Title - 24px
-    painter.setPen(QColor("#4A90E2"))
+    painter.setPen(QColor("#50c678"))
     font_title = QFont("Exo 2", 24, QFont.Bold)
     painter.setFont(font_title)
     painter.drawText(x_offset, y_start + 30, "Brawlhalla Mod Creator")
@@ -42,10 +40,10 @@ def create_splash():
     
     info_y = y_start + 65
     painter.drawText(x_offset, info_y, "Source: https://github.com/LordShadow505/BrawlhallaModCreator")
-    painter.drawText(x_offset, info_y + 22, "Version: 3.0.0 Beta")
+    painter.drawText(x_offset, info_y + 22, "Version: 0.3.1 Beta")
     painter.drawText(x_offset, info_y + 44, "Author: I_FabrizioG_I")
     painter.drawText(x_offset, info_y + 66, "Maintainers: LordShadow505 & Bucccket")
-    painter.drawText(x_offset, info_y + 100, "Discord: I_FabrizioG_I#8111")
+    painter.drawText(x_offset, info_y + 88, "Discord: https://discord.gg/ctzYZxBHgY")
     
     # Loading label - 10px
     painter.setPen(QColor("#AAAAAA"))
@@ -69,8 +67,11 @@ def create_splash():
         painter.drawText(x_offset, 383, warning_msg)
     
     painter.end()
-    image.save("splash.png")
-    print("Splash screen generated successfully as splash.png")
+    
+    # Save relative to the script location
+    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "splash.png")
+    image.save(output_path)
+    print(f"Splash screen generated successfully at: {output_path}")
 
 if __name__ == "__main__":
     create_splash()

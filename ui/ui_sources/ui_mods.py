@@ -34,7 +34,7 @@ class Ui_Mods(object):
         self.modsList.setObjectName(u"modsList")
         self.modsList.setMinimumSize(QSize(200, 0))
         self.modsList.setMaximumSize(QSize(400, 16777215))
-        self.modsList.setStyleSheet(u"background-color: #242529;")
+        self.modsList.setStyleSheet(u"background-color: #151518;")
         self.modsList.setFrameShape(QFrame.StyledPanel)
         self.modsList.setFrameShadow(QFrame.Raised)
         self.verticalLayout = QVBoxLayout(self.modsList)
@@ -46,7 +46,7 @@ class Ui_Mods(object):
         self.searchFrame.setMinimumSize(QSize(0, 30))
         self.searchFrame.setMaximumSize(QSize(16777215, 30))
         self.searchFrame.setCursor(QCursor(Qt.IBeamCursor))
-        self.searchFrame.setStyleSheet(u"background-color: #1D1E20;")
+        self.searchFrame.setStyleSheet(u"background-color: #111113;")
         self.searchFrame.setFrameShape(QFrame.StyledPanel)
         self.searchFrame.setFrameShadow(QFrame.Raised)
         self.horizontalLayout_2 = QHBoxLayout(self.searchFrame)
@@ -89,7 +89,7 @@ class Ui_Mods(object):
         self.scrollModsList.setObjectName(u"scrollModsList")
         self.scrollModsList.setStyleSheet(u"QScrollBar:vertical {         \n"
 "    border: none;\n"
-"    background: #2B2C32;\n"
+"    background: #111113;\n"
 "    width: 7px;\n"
 "    margin: 0 0 0 0;\n"
 "    border-radius: 0px;\n"
@@ -160,7 +160,7 @@ class Ui_Mods(object):
         self.modsListActions.setObjectName(u"modsListActions")
         self.modsListActions.setMinimumSize(QSize(0, 40))
         self.modsListActions.setMaximumSize(QSize(16777215, 40))
-        self.modsListActions.setStyleSheet(u"background-color: #1C1C1F;")
+        self.modsListActions.setStyleSheet(u"background-color: #111113;")
         self.modsListActions.setFrameShape(QFrame.StyledPanel)
         self.modsListActions.setFrameShadow(QFrame.Raised)
         self.horizontalLayout_3 = QHBoxLayout(self.modsListActions)
@@ -274,7 +274,7 @@ class Ui_Mods(object):
         self.modBody.setSizePolicy(sizePolicy1)
         self.modBody.setMinimumSize(QSize(0, 0))
         self.modBody.setStyleSheet(u"QFrame{\n"
-"background-color: #303136;\n"
+"background-color: #1c1c1f;\n"
 "}")
         self.modBody.setFrameShape(QFrame.StyledPanel)
         self.modBody.setFrameShadow(QFrame.Raised)
@@ -286,7 +286,7 @@ class Ui_Mods(object):
         self.scrollBody.setObjectName(u"scrollBody")
         self.scrollBody.setStyleSheet(u"QScrollBar:vertical {         \n"
 "    border: none;\n"
-"    background: #2B2C32;\n"
+"    background: #111113;\n"
 "    width: 7px;\n"
 "    margin: 0 0 0 0;\n"
 "    border-radius: 0px;\n"

@@ -4,35 +4,24 @@ import threading
 import webbrowser
 import multiprocessing
 import traceback
+import subprocess
 
 from typing import List
 
-# ── Development bootstrap ─────────────────────────────────────────────────────
-# In dev, resolve `import core` to the shared BhModLoaderCore-main package.
-# This file is excluded from production .spec builds — packaged apps use the
-# local core/ folder bundled by PyInstaller.
-try:
-    _bootstrap_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dev_bootstrap.py")
-    if os.path.exists(_bootstrap_path):
-        import importlib.util as _ilu
-        _spec = _ilu.spec_from_file_location("dev_bootstrap", _bootstrap_path)
-        _mod = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)
-except Exception as _e:
-    print(f"[dev_bootstrap] skipped: {_e}")
-# ─────────────────────────────────────────────────────────────────────────────
 
+core = None
 try:
     import core
     from core import NotificationType, Notification, Environment, CORE_VERSION
 
     JAVA_FOUND = True
-except ImportError as e:
+except Exception as e:
     Notification = None
     JAVA_FOUND = False
 
-    if e.msg != "Java not found!":
-        print(f"Error importing core: {e}")
+    CORE_IMPORT_ERROR = f"{type(e).__name__}: {str(e)}"
+    print(f"Error importing core: {CORE_IMPORT_ERROR}")
+    traceback.print_exc()
 
 from PySide6.QtGui import QIcon, QFontDatabase
 from PySide6.QtCore import QTimer, QSize, Qt
@@ -172,7 +161,8 @@ class ModCreator(QMainWindow):
                          createMethod=self.createMod,
                          reloadMethod=self.reloadMods,
                          openFolderMethod=self.openModsSourcesFolder,
-                         uninstallAllMethod=self.uninstallAllMods)
+                         uninstallAllMethod=self.uninstallAllMods,
+                         sortCallback=self.updateSortState)
         self.progressDialog = ProgressDialog(self)
         self.acceptDialog = AcceptDialog(self)  # TODO: Remake to buttons dialog
         self.inputDialog = InputDialog(self)
@@ -188,6 +178,8 @@ class ModCreator(QMainWindow):
             cacheSize=format_size(get_dir_size(core.MODLOADER_CACHE_PATH))
         )
         self.bulkOperationCount = 0
+        self.currentSortField = "Name"
+        self.currentSortReverse = False
         self.setLoadingScreen()
         self.header.setSettingsButtonPressed(self.setSettingsScreen)
         self.header.setModsButtonPressed(lambda: self.checkUnsavedSettings(self.setModsScreen))
@@ -206,9 +198,12 @@ class ModCreator(QMainWindow):
             self.controllerGetterTimer.timeout.connect(self.controllerHandler)
             self.controllerGetterTimer.start(10)
         else:
-            message = ("Java not found!\n\nRecommended java: "
-                       "<url=\"https://libericajdk.ru/pages/downloads/#/java-8-lts\">"
-                       "https://libericajdk.ru/pages/downloads/#/java-8-lts</url>")
+            if CORE_IMPORT_ERROR and "Java not found!" not in CORE_IMPORT_ERROR:
+                message = f"Error importing core:\n\n{CORE_IMPORT_ERROR}\n\nPlease check your installation."
+            else:
+                message = ("Java not found!\n\nRecommended java: "
+                           "<url=\"https://libericajdk.ru/pages/downloads/#/java-8-lts\">"
+                           "https://libericajdk.ru/pages/downloads/#/java-8-lts</url>")
             self.showError("Fatal Error:", TextFormatter.format(message, 11), terminate=True)
 
         InitWindowClose()
@@ -356,6 +351,9 @@ class ModCreator(QMainWindow):
                     self.progressDialog.hide()
                     #print(f"[DL DEBUG] UI: Progress dialog HIDDEN (Install Finished)")
 
+                if self.currentSortField == "Installed":
+                    self.mods.applySort(self.currentSortField, self.currentSortReverse)
+                    
                 self.showErrorNotifications()
                 #print(f"[DL DEBUG] UI: Installation Finished processed for {modHash}")
 
@@ -399,6 +397,9 @@ class ModCreator(QMainWindow):
                     self.progressDialog.hide()
                     #print(f"[DL DEBUG] UI: Progress dialog HIDDEN (Uninstall Finished)")
 
+                if self.currentSortField == "Installed":
+                    self.mods.applySort(self.currentSortField, self.currentSortReverse)
+                    
                 self.showErrorNotifications()
                 #print(f"[DL DEBUG] UI: Uninstallation Finished for {modHash}")
 
@@ -450,6 +451,8 @@ class ModCreator(QMainWindow):
                            NotificationType.CompileModSourcesUnsupportedCategory,
                            NotificationType.CompileModSourcesUnknownFile,
                            NotificationType.CompileModSourcesSaveError,
+                           NotificationType.CompileModSourcesDefectivePiece,
+                           NotificationType.CompileModSourcesGeneralError,
                            NotificationType.LoadingModIsEmpty,  # Loader
                            NotificationType.InstallingModNotFoundFileElement,  # Installer
                            NotificationType.InstallingModNotFoundGameSwf,
@@ -461,6 +464,11 @@ class ModCreator(QMainWindow):
                            NotificationType.UninstallingModSwfOriginalElementNotFound,  # Uninstaller
                            NotificationType.UninstallingModSwfElementNotFound]:
                 self.errors.append(notification)
+                if ntype in [NotificationType.CompileModSourcesDefectivePiece, NotificationType.CompileModSourcesGeneralError,
+                             NotificationType.CompileModSourcesSaveError, NotificationType.CompileModSourcesSpriteNotFoundInFolder,
+                             NotificationType.CompileModSourcesSpriteEmpty, NotificationType.CompileModSourcesSpriteHasNoSymbolclass]:
+                    self.showErrorNotifications()
+                    self.controller.getModsData()
 
             elif ntype == NotificationType.FatalError:
                 self.showError("Fatal Error:", notification.args[0])
@@ -487,13 +495,17 @@ class ModCreator(QMainWindow):
             self.showErrorNotifications()
 
         elif cmd == Environment.GetModsData:
+            # Reset flags for all known mods first to clear stale data
+            for mod in self.mods.modsSources.values():
+                mod.modFileExist = False
+                mod.installed = False
+
             for modData in data[1]:
                 self.mods.updateMod(hash=modData.get("hash", ""),
                                     installed=modData.get("installed", False),
                                     modFileExist=modData.get("modFileExist", False))
 
-                self.mods.updateAll()
-
+            self.mods.updateAll()
             self.setModsScreen()
             self.showErrorNotifications()
 
@@ -610,6 +622,17 @@ class ModCreator(QMainWindow):
                 elif ntype == NotificationType.CompileModSourcesSaveError:
                     string = "Error save .bmod"
 
+                elif ntype == NotificationType.CompileModSourcesDefectivePiece:
+                    sprite = notif.args[1]
+                    element_id = notif.args[2]
+                    string = (f"There is a defective piece in the mod, please delete it and try again.\n\n"
+                             f"The defective piece is: {sprite} (Element ID: {element_id})")
+
+                elif ntype == NotificationType.CompileModSourcesGeneralError:
+                    error_msg = notif.args[1]
+                    # traceback_str = notif.args[2]
+                    string = f"An error occurred during compilation: {error_msg}"
+
                 # Loader
                 elif ntype == NotificationType.LoadingModIsEmpty:
                     string = f"Mod '{notif.args[1]}' is empty"
@@ -687,10 +710,25 @@ class ModCreator(QMainWindow):
                                        ("Ok", action)])
         self.buttonsDialog.show()
 
+    def checkGameRunning(self):
+        try:
+            # Try multiple process names to be sure
+            for proc_name in ["Brawlhalla.exe", "Brawlhalla64.exe"]:
+                output = subprocess.check_output(f'tasklist /FI "IMAGENAME eq {proc_name}" /NH', 
+                                                 shell=True, 
+                                                 creationflags=subprocess.CREATE_NO_WINDOW).decode(errors='ignore').lower()
+                if proc_name.lower() in output:
+                    self.showError("Game is running!", 
+                                   "Brawlhalla is currently running. Please close the game before installing or uninstalling mods.")
+                    return True
+        except Exception as e:
+            print(f"[DEBUG] checkGameRunning error: {e}")
+        return False
+
     def copyToClipboard(self, text):
         cb = QApplication.clipboard()
-        cb.clear(mode=cb.Clipboard)
-        cb.setText(text, mode=cb.Clipboard)
+        cb.clear()
+        cb.setText(text)
 
     def checkUnsavedSettings(self, nextScreenMethod):
         if self.settings.hasUnsavedChanges:
@@ -737,6 +775,9 @@ class ModCreator(QMainWindow):
         os.startfile(core.MODLOADER_CACHE_PATH)
 
     def uninstallAllMods(self):
+        if self.checkGameRunning():
+            return
+            
         installed_mods = [btn for btn in self.mods.modsButtons if btn.modClass.installed]
         if not installed_mods:
             return
@@ -812,9 +853,12 @@ class ModCreator(QMainWindow):
 
     def setModsScreen(self):
         ClearFrame(self.ui.mainFrame)
-
         AddToFrame(self.ui.mainFrame, self.header)
         AddToFrame(self.ui.mainFrame, self.mods)
+
+    def updateSortState(self, field, reverse):
+        self.currentSortField = field
+        self.currentSortReverse = reverse
 
     def setSettingsScreen(self):
         ClearFrame(self.ui.mainFrame)
@@ -834,8 +878,7 @@ class ModCreator(QMainWindow):
                                       [None, f"<url=\"{GAMEBANANA}\">{GAMEBANANA}</url>"],
                                       ["Tool Maintainers:", "LordShadow505 & Bucccket"],
                                       ["Author:", "I_FabrizioG_I"],
-                                      ["Contacts:", "Discord: I_FabrizioG_I#8111"],
-                                      [None, "VK: vk/fabriziog"]], newLine=False)
+                                      ["Modhalla Discord:", f"<url=\"https://discord.gg/ctzYZxBHgY\">https://discord.gg/ctzYZxBHgY</url>"]], newLine=False)
 
         self.buttonsDialog.setContent(TextFormatter.format(string, 11))
         self.buttonsDialog.setButtons([("Ok", self.buttonsDialog.hide)])
@@ -856,6 +899,9 @@ class ModCreator(QMainWindow):
             self.controller.saveModSource(modSources.hash)
 
     def installMod(self):
+        if self.checkGameRunning():
+            return
+            
         if self.mods.selectedModButton is not None:
             if self.bulkOperationCount <= 0:
                 self.bulkOperationCount = 1
@@ -864,6 +910,9 @@ class ModCreator(QMainWindow):
                 self.controller.getModConflict(modClass.hash)
 
     def uninstallMod(self, modButton=None):
+        if self.checkGameRunning():
+            return
+            
         if modButton is None or isinstance(modButton, bool):
             modButton = self.mods.selectedModButton
             if self.bulkOperationCount <= 0:
@@ -874,6 +923,9 @@ class ModCreator(QMainWindow):
             self.controller.uninstallMod(modClass.hash)
 
     def reinstallMod(self):
+        if self.checkGameRunning():
+            return
+            
         if self.mods.selectedModButton is not None:
             modClass = self.mods.selectedModButton.modClass
             self.controller.uninstallMod(modClass.hash)

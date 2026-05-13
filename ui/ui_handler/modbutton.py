@@ -1,8 +1,8 @@
 import re
 
-from PySide6.QtWidgets import QWidget, QScrollArea
-from PySide6.QtGui import QFontMetrics, Qt, QPixmap
-from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QWidget, QScrollArea, QPushButton
+from PySide6.QtGui import QFontMetrics, Qt, QPixmap, QIcon, QCursor
+from PySide6.QtCore import QEvent, QSize
 
 from .modclass import ModClass
 
@@ -21,6 +21,30 @@ class ModButton(QWidget):
 
         self.ui = Ui_ModButton()
         self.ui.setupUi(self)
+
+        # Open Folder Button
+        self.ui.openFolderBtn = QPushButton(self.ui.background)
+        self.ui.openFolderBtn.setObjectName(u"openFolderBtn")
+        self.ui.openFolderBtn.setMinimumSize(QSize(24, 24))
+        self.ui.openFolderBtn.setMaximumSize(QSize(24, 24))
+        self.ui.openFolderBtn.setCursor(QCursor(Qt.PointingHandCursor))
+        self.ui.openFolderBtn.setStyleSheet(u"QPushButton { border: none; background-color: transparent; }")
+        icon = QIcon()
+        icon.addFile(u":/icons/resources/icons/OpenModsFolder.png", QSize(), QIcon.Normal, QIcon.Off)
+        self.ui.openFolderBtn.setIcon(icon)
+        self.ui.openFolderBtn.setIconSize(QSize(20, 20))
+        self.ui.openFolderBtn.setToolTip("Open mod source folder")
+        self.ui.openFolderBtn.clicked.connect(self.openFolder)
+
+        # Layout adjustments
+        self.ui.horizontalLayout_2.setContentsMargins(10, 0, 10, 0)
+        self.ui.horizontalLayout_2.setSpacing(8)
+        self.ui.horizontalLayout_2.insertWidget(0, self.ui.openFolderBtn)
+        
+        # Stability: Ensure modInfo expands while others stay fixed
+        self.ui.horizontalLayout_2.setStretch(0, 0)
+        self.ui.horizontalLayout_2.setStretch(1, 1)
+        self.ui.horizontalLayout_2.setStretch(2, 0)
 
         self.updateData()
 
@@ -58,13 +82,14 @@ class ModButton(QWidget):
         versionWidth = self.ui.gameVersion.fontMetrics().boundingRect(self.ui.gameVersion.text()).width()
 
         elided = self.ui.modName.fontMetrics().elidedText(self.modClass.name,
-                                                          Qt.ElideRight, parent.width() - 60 - versionWidth)
+                                                          Qt.ElideRight, parent.width() - 100 - versionWidth)
         self.ui.modName.setText(elided)
         self.ui.modName.setMaximumWidth(parent.width() - 100)
 
         elided = self.ui.modAuthor.fontMetrics().elidedText(f"Author: {self.modClass.author}",
-                                                            Qt.ElideRight, parent.width() - 50)
+                                                            Qt.ElideRight, parent.width() - 90)
         self.ui.modAuthor.setText(elided)
+        self.ui.modAuthor.setMaximumWidth(parent.width() - 90)
 
     def select(self):
         if self.pressed:
@@ -85,6 +110,11 @@ class ModButton(QWidget):
                 ss.replace(f"#00{bgColor}", f"#FF{bgColor}").replace(f"#77{bgColor}", f"#FE{bgColor}"))
 
             self.method(self.modClass)
+
+    def openFolder(self, event=None):
+        import os
+        if self.modClass.modSourcesPath and os.path.exists(self.modClass.modSourcesPath):
+            os.startfile(self.modClass.modSourcesPath)
 
     def remove(self):
         self.layout().removeWidget(self)
