@@ -1,77 +1,90 @@
+"""
+generate_splash.py – BrawlhallaModCreator
+==========================================
+Loads the manually designed splash.png base image and overlays:
+  - "Loading files:"  (Bespoke 9pt, white, bottom-left)
+  - "ver. X.Y.Z"      (Bespoke 9pt, white, bottom-left, below loading label)
+
+Everything else stays exactly as drawn in the manual design.
+Run this script whenever the version changes or after editing the base image.
+"""
+
 import sys
 import os
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QImage, QPainterPath, QPixmap
-from PySide6.QtCore import Qt, QRect
+from PySide6.QtGui import QPainter, QColor, QFont, QFontDatabase, QPixmap, QImage
 
-def create_splash():
-    app = QApplication(sys.argv)
-    
-    # Using a slightly larger canvas to avoid edge clipping artifacts
-    width, height = 650, 420
-    image = QImage(width, height, QImage.Format_ARGB32)
-    image.fill(Qt.transparent)
-    
+# ──────────────────────────────────────────────────────────────────────────────
+# Paths
+# ──────────────────────────────────────────────────────────────────────────────
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+FONT_PATH = os.path.join(
+    _SCRIPT_DIR,
+    "ui", "ui_sources", "resources", "fonts", "Bespoke", "Bespoke.ttf"
+)
+
+# splash_base.png  = manually designed image (never modified by this script)
+# splash.png        = final output (readable by PyInstaller's pyi_splash)
+BASE_IMAGE_PATH = os.path.join(_SCRIPT_DIR, "splash_base.png")
+OUTPUT_PATH     = os.path.join(_SCRIPT_DIR, "splash.png")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Version (fallback used when running as plain script)
+# ──────────────────────────────────────────────────────────────────────────────
+VERSION = "0.4.0"
+
+VERSION_TEXT_SIZE = 10   # pt
+VERSION_X         = 736  # px from left
+VERSION_Y         = 440  # px from top (baseline)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+def create_splash(version: str = VERSION):
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    # Load Bespoke font
+    font_id = QFontDatabase.addApplicationFont(FONT_PATH)
+    if font_id == -1:
+        print(f"[WARNING] Could not load Bespoke font from: {FONT_PATH}  – using Arial")
+        font_family = "Arial"
+    else:
+        families    = QFontDatabase.applicationFontFamilies(font_id)
+        font_family = families[0] if families else "Arial"
+        print(f"[INFO] Loaded font: {font_family}")
+
+    # Read the manually designed base image into memory BEFORE opening the
+    # output file for writing, so read-then-write is safe even when paths match.
+    base_pixmap = QPixmap(BASE_IMAGE_PATH)
+    if base_pixmap.isNull():
+        print(f"[ERROR] Could not load base image: {BASE_IMAGE_PATH}")
+        print("        Make sure splash.png exists in the same folder as this script.")
+        return
+
+    width  = base_pixmap.width()
+    height = base_pixmap.height()
+
+    image = base_pixmap.toImage().convertToFormat(QImage.Format_ARGB32)
+
     painter = QPainter(image)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setRenderHint(QPainter.SmoothPixmapTransform)
-    
-    # Draw background with a 1px margin to ensure smooth edges and no artifacts
-    bg_rect = QRect(1, 1, width - 2, height - 2)
-    
-    # Clean fill with flat corners
-    painter.setBrush(QBrush(QColor("#0a0a0c")))
-    painter.setPen(Qt.NoPen)
-    painter.drawRect(bg_rect)
-    
-    x_offset = 40
-    y_start = 60
-    
-    # Title - 24px
-    painter.setPen(QColor("#50c678"))
-    font_title = QFont("Exo 2", 24, QFont.Bold)
-    painter.setFont(font_title)
-    painter.drawText(x_offset, y_start + 30, "Brawlhalla Mod Creator")
-    
-    # Info lines - 14px
-    painter.setPen(QColor("#888888"))
-    font_info = QFont("Roboto", 14)
-    painter.setFont(font_info)
-    
-    info_y = y_start + 65
-    painter.drawText(x_offset, info_y, "Source: https://github.com/LordShadow505/BrawlhallaModCreator")
-    painter.drawText(x_offset, info_y + 22, "Version: 0.3.1 Beta")
-    painter.drawText(x_offset, info_y + 44, "Author: I_FabrizioG_I")
-    painter.drawText(x_offset, info_y + 66, "Maintainers: LordShadow505 & Bucccket")
-    painter.drawText(x_offset, info_y + 88, "Discord: https://discord.gg/ctzYZxBHgY")
-    
-    # Loading label - 10px
-    painter.setPen(QColor("#AAAAAA"))
-    font_load = QFont("Roboto", 10, QFont.Bold)
-    painter.setFont(font_load)
-    # Aligned with text_pos=(170, 306)
-    painter.drawText(x_offset, 306, "Loading files:") 
-    
-    # Warning message at the bottom in red - 10px
-    painter.setPen(QColor("#FF5252"))
-    font_warn = QFont("Roboto", 10, QFont.Bold)
-    painter.setFont(font_warn)
-    
-    warning_msg = "Note: Skin mods require a PAID base skin. Check requirements on GameBanana."
-    icon_path = "ui/ui_sources/resources/icons/Warning.png"
-    if os.path.exists(icon_path):
-        warning_icon = QPixmap(icon_path).scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        painter.drawPixmap(x_offset, 370, warning_icon)
-        painter.drawText(x_offset + 25, 383, warning_msg)
-    else:
-        painter.drawText(x_offset, 383, warning_msg)
-    
-    painter.end()
-    
-    # Save relative to the script location
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "splash.png")
-    image.save(output_path)
-    print(f"Splash screen generated successfully at: {output_path}")
 
+    # Version text at fixed position, white, Bespoke 10pt
+    font = QFont(font_family, VERSION_TEXT_SIZE)
+    painter.setFont(font)
+    painter.setPen(QColor("#FFFFFF"))
+
+    version_str = f"ver. {version}"
+    painter.drawText(VERSION_X, VERSION_Y, version_str)
+
+    painter.end()
+
+    image.save(OUTPUT_PATH)
+    print(f"[OK] Splash saved: {OUTPUT_PATH}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    create_splash()
+    # Optional CLI version override:  python generate_splash.py 0.4.0
+    ver = sys.argv[1] if len(sys.argv) > 1 else VERSION
+    create_splash(version=ver)

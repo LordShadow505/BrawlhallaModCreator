@@ -119,17 +119,15 @@ class ModCreator(QMainWindow):
     config = CreatorConfig()
     if config.modsPath:
         modsPath = config.modsPath
-    elif os.path.exists(_local_mods):
-        modsPath = _local_mods
     else:
-        modsPath = os.path.join(core.MODLOADER_CACHE_PATH, "Mods")
+        modsPath = _local_mods
+        os.makedirs(modsPath, exist_ok=True)
 
     if config.modsSourcesPath:
         modsSourcesPath = config.modsSourcesPath
-    elif os.path.exists(_local_mods_sources):
-        modsSourcesPath = _local_mods_sources
     else:
-        modsSourcesPath = os.path.join(core.MODLOADER_CACHE_PATH, "Mods Sources")
+        modsSourcesPath = _local_mods_sources
+        os.makedirs(modsSourcesPath, exist_ok=True)
 
     errors: List[Notification] = []
 
@@ -452,6 +450,7 @@ class ModCreator(QMainWindow):
                            NotificationType.CompileModSourcesUnknownFile,
                            NotificationType.CompileModSourcesSaveError,
                            NotificationType.CompileModSourcesDefectivePiece,
+                           NotificationType.CompileModSourcesDuplicateSpriteId,
                            NotificationType.CompileModSourcesGeneralError,
                            NotificationType.LoadingModIsEmpty,  # Loader
                            NotificationType.InstallingModNotFoundFileElement,  # Installer
@@ -464,7 +463,7 @@ class ModCreator(QMainWindow):
                            NotificationType.UninstallingModSwfOriginalElementNotFound,  # Uninstaller
                            NotificationType.UninstallingModSwfElementNotFound]:
                 self.errors.append(notification)
-                if ntype in [NotificationType.CompileModSourcesDefectivePiece, NotificationType.CompileModSourcesGeneralError,
+                if ntype in [NotificationType.CompileModSourcesDefectivePiece, NotificationType.CompileModSourcesDuplicateSpriteId, NotificationType.CompileModSourcesGeneralError,
                              NotificationType.CompileModSourcesSaveError, NotificationType.CompileModSourcesSpriteNotFoundInFolder,
                              NotificationType.CompileModSourcesSpriteEmpty, NotificationType.CompileModSourcesSpriteHasNoSymbolclass]:
                     self.showErrorNotifications()
@@ -614,7 +613,9 @@ class ModCreator(QMainWindow):
                     string = f"Not found sprite in '{notif.args[1]}'"
 
                 elif ntype == NotificationType.CompileModSourcesUnsupportedCategory:
-                    string = f"Unsupported elements category '{notif.args[1]}'"
+                    string = (f"Unsupported elements category '{notif.args[1]}'.\n\n"
+                              f"Make sure the format is correct, for example:\n"
+                              f"Gfx_Something.swf/sprites/.../...")
 
                 elif ntype == NotificationType.CompileModSourcesUnknownFile:
                     string = f"Unknown file '{notif.args[1]}'"
@@ -622,11 +623,22 @@ class ModCreator(QMainWindow):
                 elif ntype == NotificationType.CompileModSourcesSaveError:
                     string = "Error save .bmod"
 
+                elif ntype == NotificationType.CompileModSourcesDuplicateSpriteId:
+                    sprite_id = notif.args[1]
+                    sprite1 = notif.args[2]
+                    sprite2 = notif.args[3]
+                    string = (f"There is a conflict because two sprites share the same ID number.\n\n"
+                              f"Duplicate ID: {sprite_id}\n"
+                              f"Found in: '{sprite1}' and '{sprite2}'\n"
+                              f"Please change the ID of one of them and try again.")
+
                 elif ntype == NotificationType.CompileModSourcesDefectivePiece:
                     sprite = notif.args[1]
                     element_id = notif.args[2]
                     string = (f"There is a defective piece in the mod, please delete it and try again.\n\n"
                              f"The defective piece is: {sprite} (Element ID: {element_id})")
+
+
 
                 elif ntype == NotificationType.CompileModSourcesGeneralError:
                     error_msg = notif.args[1]
@@ -763,7 +775,9 @@ class ModCreator(QMainWindow):
             
             # Update paths if they changed
             self.modsPath = self.config.modsPath or self._local_mods
+            os.makedirs(self.modsPath, exist_ok=True)
             self.modsSourcesPath = self.config.modsSourcesPath or self._local_mods_sources
+            os.makedirs(self.modsSourcesPath, exist_ok=True)
             self.controller.setModsPath(self.modsPath)
             self.controller.setModsSourcesPath(self.modsSourcesPath)
             

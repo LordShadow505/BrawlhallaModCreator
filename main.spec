@@ -19,10 +19,10 @@ pyz = PYZ(a.pure, a.zipped_data,
 splash = Splash('splash.png',
                 binaries=a.binaries,
                 datas=a.datas,
-                text_pos=(140, 300),
-                text_font="Exo",
+                text_pos=(192, 290),
+                text_font="ui/ui_sources/resources/fonts/Bespoke/Bespoke.ttf",
                 text_size=12,
-                text_color='#92B7D1')
+                text_color='#FFFFFF')
 exe = EXE(pyz,
           a.scripts,
           a.binaries,
