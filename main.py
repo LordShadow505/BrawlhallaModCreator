@@ -166,14 +166,21 @@ class ModCreator(QMainWindow):
         self.inputDialog = InputDialog(self)
         self.buttonsDialog = ButtonsDialog(self)
 
+        bhPath = "Not found"
+        cacheSize = "0 B"
+        if core and hasattr(core, 'worker') and hasattr(core.worker, 'brawlhalla'):
+            bhPath = core.worker.brawlhalla.BRAWLHALLA_PATH or "Not found"
+        if core and hasattr(core, 'MODLOADER_CACHE_PATH'):
+            cacheSize = format_size(get_dir_size(core.MODLOADER_CACHE_PATH))
+
         self.settings = SettingsFrame(
             saveCallback=self.syncSettingsWithCore,
             openCacheMethod=self.openCacheFolder,
             clearCacheMethod=self.clearCache,
-            bhPath=core.worker.brawlhalla.BRAWLHALLA_PATH or "Not found",
+            bhPath=bhPath,
             modsPath=self.modsPath,
             modsSourcesPath=self.modsSourcesPath,
-            cacheSize=format_size(get_dir_size(core.MODLOADER_CACHE_PATH))
+            cacheSize=cacheSize
         )
         self.bulkOperationCount = 0
         self.currentSortField = "Name"
@@ -1016,10 +1023,46 @@ class ModCreator(QMainWindow):
         self.buttonsDialog.setTitle(f"New version available '{version}'")
         self.buttonsDialog.setContent(TextFormatter.format(body, 11))
         self.buttonsDialog.deleteButtons()
-        self.buttonsDialog.addButton("GO TO SITE", lambda: [webbrowser.open(url),
-                                                            self.buttonsDialog.hide()])
+        self.buttonsDialog.addButton("GO TO SITE", lambda: webbrowser.open(url))
+        self.buttonsDialog.addButton("UPDATE", lambda: [self.buttonsDialog.hide(),
+                                                        self.updateApp(fileUrl, version)])
         self.buttonsDialog.addButton("CANCEL", self.buttonsDialog.hide)
         self.buttonsDialog.show()
+
+    def handleUpdateApp(self, blocknum, blocksize, totalsize):
+        readedData = blocknum * blocksize
+
+        if totalsize > 0:
+            downloadPercentage = int(readedData * 100 / totalsize)
+            self.progressDialog.setValue(downloadPercentage)
+            QApplication.processEvents()
+
+    def updateApp(self, fileUrl: str, version: str):
+        import urllib.request
+        filePath = os.path.join(os.getcwd(), "temp.exe")
+        fileName = os.path.split(fileUrl)[1]
+
+        self.progressDialog.setMaximum(100)
+        self.progressDialog.setTitle(f"Update ModCreator to '{version}'")
+        self.progressDialog.setContent(f"Download '{fileName}'")
+        self.progressDialog.show()
+        urllib.request.urlretrieve(fileUrl, filePath, self.handleUpdateApp)
+        self.progressDialog.hide()
+
+        clientPath = os.environ.get("CLIENT_PATH")
+        if not clientPath and core and hasattr(core, 'MODLOADER_CACHE_PATH'):
+            possibleClient = os.path.join(core.MODLOADER_CACHE_PATH, "ModLoaderClient.exe")
+            if os.path.exists(possibleClient):
+                clientPath = possibleClient
+
+        currentExe = os.path.abspath(sys.argv[0])
+        if clientPath and os.path.exists(clientPath):
+            subprocess.Popen([clientPath, "-update", currentExe, filePath])
+        else:
+            cmd = f'ping 127.0.0.1 -n 3 > NUL & move /y "{filePath}" "{currentExe}" & start "" "{currentExe}"'
+            subprocess.Popen(cmd, shell=True)
+
+        QApplication.exit(0)
 
     def checkNewVersion(self):
         latest = GetLatest()
