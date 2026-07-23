@@ -24,7 +24,7 @@ except Exception as e:
     traceback.print_exc()
 
 from PySide6.QtGui import QIcon, QFontDatabase
-from PySide6.QtCore import QTimer, QSize, Qt
+from PySide6.QtCore import QTimer, QSize, Qt, Signal
 from PySide6.QtWidgets import QApplication, QMainWindow, QFrame, QVBoxLayout, QLabel
 
 from ui.ui_handler.window import Window
@@ -103,6 +103,7 @@ def restart_app():
 
 
 class ModCreator(QMainWindow):
+    brawlhallaNotFoundSignal = Signal()
     _loaded = False
 
     # Path resolution:
@@ -191,6 +192,7 @@ class ModCreator(QMainWindow):
 
         self.setMinimumSize(QSize(850, 550))
 
+        self.brawlhallaNotFoundSignal.connect(self.showBrawlhallaNotFoundDialog)
         threading.Thread(target=self.checkNewVersion).start()
 
         self.controller = None
@@ -203,12 +205,20 @@ class ModCreator(QMainWindow):
             self.controllerGetterTimer.timeout.connect(self.controllerHandler)
             self.controllerGetterTimer.start(10)
         else:
-            if CORE_IMPORT_ERROR and "Java not found!" not in CORE_IMPORT_ERROR:
+            err_str = str(CORE_IMPORT_ERROR).lower() if CORE_IMPORT_ERROR else ""
+            is_java_error = not CORE_IMPORT_ERROR or any(k in err_str for k in ["java not found", "_jpype", "jpype", "jvmnotfoundexception", "jvm"])
+            if not is_java_error:
                 message = f"Error importing core:\n\n{CORE_IMPORT_ERROR}\n\nPlease check your installation."
             else:
-                message = ("Java not found!\n\nRecommended java: "
-                           "<url=\"https://libericajdk.ru/pages/downloads/#/java-8-lts\">"
-                           "https://libericajdk.ru/pages/downloads/#/java-8-lts</url>")
+                message = ("Java Not Found!\n\n"
+                           "Java 64-bit is required to run this application.\n\n"
+                           "<b>1. Download & Install (If not installed):</b>\n"
+                           "Download and install the <u>Windows Offline (64-bit)</u> version from:\n"
+                           "<url=\"https://www.java.com/en/download/windows_manual.jsp\">"
+                           "https://www.java.com/en/download/windows_manual.jsp</url>\n\n"
+                           "<b>2. If already installed:</b>\n"
+                           "Set <b>JAVA_HOME</b> as the variable name, and for the path, enter your Java installation directory "
+                           "(e.g. <i>C:\\Program Files\\Java\\jre1.8.0_401</i>). Click OK and restart Brawlhalla Mod Creator.")
             self.showError("Fatal Error:", TextFormatter.format(message, 11), terminate=True)
 
         InitWindowClose()
@@ -230,12 +240,19 @@ class ModCreator(QMainWindow):
         if self.config.brawlhallaPath:
             core.worker.config.ModloaderCoreConfig.customBrawlhallaPath = self.config.brawlhallaPath
             core.worker.config.ModloaderCoreConfig.save()
+            if hasattr(core, 'worker') and hasattr(core.worker, 'brawlhalla'):
+                core.worker.brawlhalla.BRAWLHALLA_PATH = self.config.brawlhallaPath
 
         self.controller.reloadMods()
         self.controller.reloadModsSources()
 
         self.controller.getModsSourcesData()
         self.controller.getModsData()
+
+        # Check if Brawlhalla path was found
+        bh_path = getattr(core.worker.brawlhalla, 'BRAWLHALLA_PATH', None) if (hasattr(core, 'worker') and hasattr(core.worker, 'brawlhalla')) else None
+        if not bh_path or not os.path.exists(bh_path) or not os.path.isfile(os.path.join(bh_path, "Brawlhalla.exe")):
+            QTimer.singleShot(500, self.brawlhallaNotFoundSignal.emit)
 
     def resizeEvent(self, event):
         self.progressDialog.onResize()
@@ -905,6 +922,66 @@ class ModCreator(QMainWindow):
         self.buttonsDialog.setButtons([("Ok", self.buttonsDialog.hide)])
         self.buttonsDialog.show()
 
+    def showBrawlhallaNotFoundDialog(self):
+        message = (
+            "Brawlhalla Path Not Found!\n\n"
+            "The location of <b>Brawlhalla.exe</b> could not be detected automatically.\n\n"
+            "Please click <b>'Select Path'</b> to locate your <i>Brawlhalla.exe</i> or installation folder.\n\n"
+            "<b>Note:</b>\n"
+            "• You can also set or change the Brawlhalla path anytime in <b>Settings</b>.\n"
+            "• If you cancel, the application will still load, but mods <u>cannot be installed</u> until 'Brawlhalla.exe' is selected."
+        )
+        self.acceptDialog.setTitle("Brawlhalla Path Not Found")
+        self.acceptDialog.setContent(TextFormatter.format(message, 11))
+        self.acceptDialog.ui.accept.setText("Select Path")
+        self.acceptDialog.ui.cancel.setText("Cancel")
+        self.acceptDialog.setAccept(self._browseBrawlhallaPath)
+        self.acceptDialog.setCancel(self.acceptDialog.hide)
+        self.acceptDialog.show()
+
+    def _browseBrawlhallaPath(self):
+        self.acceptDialog.hide()
+        from PySide6.QtWidgets import QFileDialog
+
+        initial_dir = self.config.brawlhallaPath if (self.config.brawlhallaPath and os.path.exists(self.config.brawlhallaPath)) else "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Brawlhalla"
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Brawlhalla.exe or Installation Folder",
+            initial_dir,
+            "Brawlhalla Executable (Brawlhalla.exe *.exe);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        folder = os.path.dirname(file_path) if os.path.isfile(file_path) else file_path
+
+        if os.path.exists(folder) and (os.path.isfile(os.path.join(folder, "Brawlhalla.exe")) or "Brawlhalla.exe" in os.listdir(folder)):
+            self.config.brawlhallaPath = folder
+            self.config.save()
+            if hasattr(core, 'worker') and hasattr(core.worker, 'config'):
+                core.worker.config.ModloaderCoreConfig.customBrawlhallaPath = folder
+                core.worker.config.ModloaderCoreConfig.save()
+            if hasattr(core, 'worker') and hasattr(core.worker, 'brawlhalla'):
+                core.worker.brawlhalla.BRAWLHALLA_PATH = folder
+                
+            if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'reloadMods'):
+                self.controller.reloadMods()
+        else:
+            err_msg = (
+                "Invalid Brawlhalla Path!\n\n"
+                f"The selected directory:\n<b>{folder}</b>\n\n"
+                "Does not contain <b>Brawlhalla.exe</b>. Please select the folder containing Brawlhalla.exe."
+            )
+            self.acceptDialog.setTitle("Invalid Path")
+            self.acceptDialog.setContent(TextFormatter.format(err_msg, 11))
+            self.acceptDialog.ui.accept.setText("Try Again")
+            self.acceptDialog.ui.cancel.setText("Cancel")
+            self.acceptDialog.setAccept(self.showBrawlhallaNotFoundDialog)
+            self.acceptDialog.setCancel(self.acceptDialog.hide)
+            self.acceptDialog.show()
+
     def saveModSource(self):
         if self.mods.selectedModButton is not None:
             modSources = self.mods.selectedModButton.modClass
@@ -920,6 +997,11 @@ class ModCreator(QMainWindow):
             self.controller.saveModSource(modSources.hash)
 
     def installMod(self):
+        bh_path = getattr(core.worker.brawlhalla, 'BRAWLHALLA_PATH', None) if (hasattr(core, 'worker') and hasattr(core.worker, 'brawlhalla')) else None
+        if not bh_path or not os.path.exists(bh_path) or not os.path.isfile(os.path.join(bh_path, "Brawlhalla.exe")):
+            self.showBrawlhallaNotFoundDialog()
+            return
+
         if self.checkGameRunning():
             return
             
