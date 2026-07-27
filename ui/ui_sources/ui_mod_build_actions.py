@@ -34,7 +34,7 @@ class Ui_ModsBuildActions(object):
         self.buttons.setObjectName(u"buttons")
         self.buttons.setMaximumSize(QSize(16777215, 95))
         self.buttons.setStyleSheet(u"QPushButton{\n"
-"border-radius: 4;\n"
+"border-radius: 14px;\n"
 "font: 500 11pt \"Roboto Medium\";\n"
 "}")
         self.buttons.setFrameShape(QFrame.StyledPanel)

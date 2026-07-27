@@ -26,15 +26,15 @@ class Ui_ModButton(object):
         self.horizontalLayout = QHBoxLayout(ModButton)
         self.horizontalLayout.setSpacing(0)
         self.horizontalLayout.setObjectName(u"horizontalLayout")
-        self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
+        self.horizontalLayout.setContentsMargins(3, 2, 3, 2)
         self.background = QFrame(ModButton)
         self.background.setObjectName(u"background")
         self.background.setStyleSheet(u"QFrame#background{\n"
-"background-color: #0024638C;\n"
-"border-radius: 5;\n"
+"background-color: #00282F76;\n"
+"border-radius: 8;\n"
 "}\n"
 "QFrame:hover#background{\n"
-"background-color: #7724638C;\n"
+"background-color: #77323F99;\n"
 "}")
         self.background.setFrameShape(QFrame.StyledPanel)
         self.background.setFrameShadow(QFrame.Raised)
