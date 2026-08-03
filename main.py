@@ -39,6 +39,7 @@ from ui.ui_handler.inputdialog import InputDialog
 
 from ui.utils.layout import AddToFrame, ClearFrame
 from ui.utils.textformater import TextFormatter
+from ui.utils.markdown_helper import render_markdown_to_html
 from ui.utils.version import GetLatest, GITHUB, REPO, VERSION, GIT_VERSION, PRERELEASE, GAMEBANANA
 from ui.utils.mainthread import QExecMainThread
 from ui.utils.config import CreatorConfig
@@ -1102,12 +1103,15 @@ class ModCreator(QMainWindow):
 
     @QExecMainThread
     def newVersion(self, url: str, fileUrl: str, version: str, body: str):
-        self.buttonsDialog.setTitle(f"New version available '{version}'")
-        self.buttonsDialog.setContent(TextFormatter.format(body, 11))
+        self.buttonsDialog.setTitle(f"New Version Available '{version}'")
+        rendered_html = render_markdown_to_html(body)
+        self.buttonsDialog.setContent(rendered_html)
+        self.buttonsDialog.setDialogSize(min_width=680, max_height=420)
         self.buttonsDialog.deleteButtons()
         self.buttonsDialog.addButton("GO TO SITE", lambda: webbrowser.open(url))
-        self.buttonsDialog.addButton("UPDATE", lambda: [self.buttonsDialog.hide(),
-                                                        self.updateApp(fileUrl, version)])
+        if fileUrl:
+            self.buttonsDialog.addButton("UPDATE", lambda: [self.buttonsDialog.hide(),
+                                                            self.updateApp(fileUrl, version)])
         self.buttonsDialog.addButton("CANCEL", self.buttonsDialog.hide)
         self.buttonsDialog.show()
 

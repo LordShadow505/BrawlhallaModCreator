@@ -12,6 +12,8 @@ class ButtonsDialog(QWidget):
     font.setBold(False)
 
     maxContentHeight = 300
+    customMinWidth = None
+    customMaxHeight = None
 
     def __init__(self, window):
         super().__init__()
@@ -27,6 +29,15 @@ class ButtonsDialog(QWidget):
 
         #self.buttons: List[Tuple[str, Callable]] = []
         self.buttons: List[QPushButton] = []
+
+    def setDialogSize(self, min_width=None, max_height=None):
+        self.customMinWidth = min_width
+        self.customMaxHeight = max_height
+
+    def resetDialogSize(self):
+        self.customMinWidth = None
+        self.customMaxHeight = None
+        self.ui.dialogBackground.setMinimumWidth(500)
 
     def deleteButtons(self):
         for button in self.buttons:
@@ -65,17 +76,25 @@ class ButtonsDialog(QWidget):
             super().show()
             self.raise_()
 
-            if self.ui.content.height() <= self.maxContentHeight:
+            if self.customMinWidth:
+                self.ui.dialogBackground.setMinimumWidth(self.customMinWidth)
+            else:
+                self.ui.dialogBackground.setMinimumWidth(500)
+
+            target_max_height = self.customMaxHeight if self.customMaxHeight is not None else self.maxContentHeight
+
+            if self.ui.content.height() <= target_max_height:
                 self.ui.scrollLabel.setMinimumHeight(self.ui.content.height())
                 self.ui.scrollLabel.setMaximumHeight(self.ui.content.height())
             else:
-                self.ui.scrollLabel.setMinimumHeight(self.maxContentHeight)
-                self.ui.scrollLabel.setMaximumHeight(self.maxContentHeight)
+                self.ui.scrollLabel.setMinimumHeight(target_max_height)
+                self.ui.scrollLabel.setMaximumHeight(target_max_height)
 
     def hide(self):
         if self.parent() is not None:
             super().hide()
             self.setParent(None)
+            self.resetDialogSize()
 
     def setContent(self, content: str):
         self.ui.content.setText(content)
