@@ -14,7 +14,7 @@ class ProgressDialog(QWidget):
         self.mainWindow = window
 
         # Skin Warning
-        self.skinWarning = QLabel("Remember that any existing skin mod requires a PAID skin, check the REQUIREMENTS section in gamebanana to find out which skin it replaces")
+        self.skinWarning = QLabel("Remember that any existing skin mod requires a PAID skin, check the REQUIREMENTS section in GameBanana to find out which skin it replaces")
         self.skinWarning.setWordWrap(True)
         self.skinWarning.setAlignment(Qt.AlignCenter)
         self.skinWarning.setStyleSheet("color: #FF5252; font-size: 10px; font-weight: bold; margin-top: 5px;")

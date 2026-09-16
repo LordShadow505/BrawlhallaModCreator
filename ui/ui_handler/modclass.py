@@ -18,7 +18,10 @@ class ModClass:
                  currentVersion: bool,
                  modFileExist: bool,
                  modSourcesPath: str,
-                 date: float = 0.0):
+                 date: float = 0.0,
+                 swfNames=None,
+                 spriteNames=None,
+                 swfs=None):
         self.gameVersion = gameVersion
         self.name = name
         self.author = author
@@ -33,3 +36,6 @@ class ModClass:
         self.modFileExist = modFileExist
         self.modSourcesPath = modSourcesPath
         self.date = date
+        self.swfNames = swfNames or []
+        self.spriteNames = spriteNames or []
+        self.swfs = swfs or {}

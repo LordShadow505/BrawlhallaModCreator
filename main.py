@@ -1,5 +1,28 @@
 import os
 import sys
+
+# Ensure PyInstaller runtime directories are registered for Windows DLL search
+if getattr(sys, 'frozen', False):
+    _base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    os.environ['PATH'] = _base_dir + os.pathsep + os.path.join(_base_dir, 'PySide6') + os.pathsep + os.path.join(_base_dir, 'shiboken6') + os.pathsep + os.environ.get('PATH', '')
+    if hasattr(os, 'add_dll_directory'):
+        try:
+            os.add_dll_directory(_base_dir)
+        except Exception:
+            pass
+        for _sub in ['PySide6', 'shiboken6']:
+            _sub_dir = os.path.join(_base_dir, _sub)
+            if os.path.isdir(_sub_dir):
+                try:
+                    os.add_dll_directory(_sub_dir)
+                except Exception:
+                    pass
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetDllDirectoryW(_base_dir)
+    except Exception:
+        pass
+
 import threading
 import webbrowser
 import multiprocessing
@@ -7,6 +30,7 @@ import traceback
 import subprocess
 
 from typing import List
+
 
 
 core = None
@@ -23,9 +47,9 @@ except Exception as e:
     print(f"Error importing core: {CORE_IMPORT_ERROR}")
     traceback.print_exc()
 
-from PySide6.QtGui import QIcon, QFontDatabase
+from PySide6.QtGui import QIcon, QFontDatabase, QFont, QPixmap, QPainter, QColor
 from PySide6.QtCore import QTimer, QSize, Qt, Signal
-from PySide6.QtWidgets import QApplication, QMainWindow, QFrame, QVBoxLayout, QLabel
+from PySide6.QtWidgets import QApplication, QMainWindow, QFrame, QVBoxLayout, QLabel, QSplashScreen
 
 from ui.ui_handler.window import Window
 from ui.ui_handler.loading import Loading
@@ -49,23 +73,84 @@ SUPPORT_URL = "https://www.patreon.com/bhmodloader"
 PROGRAM_NAME = "Brawlhalla Mod Creator"
 
 
-def InitWindowSetText(text):
-    if getattr(sys, "frozen", False):
-        try:
-            import pyi_splash
-            pyi_splash.update_text(text)
-        except:
-            pass
+GLOBAL_SPLASH = None
+
+
+def close_nuitka_splash():
+    """Ensure Nuitka onefile bootloader splash is completely closed/hidden."""
+    # 1. Official Nuitka onefile splash dismissal using NUITKA_ONEFILE_PARENT environment variable
+    try:
+        if "NUITKA_ONEFILE_PARENT" in os.environ:
+            import tempfile
+            splash_filename = os.path.join(
+                tempfile.gettempdir(),
+                "onefile_%d_splash_feedback.tmp" % int(os.environ["NUITKA_ONEFILE_PARENT"]),
+            )
+            if os.path.exists(splash_filename):
+                try:
+                    os.unlink(splash_filename)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Native module fallback if available
+    try:
+        import onefile_splash
+        onefile_splash.close()
+    except Exception:
+        pass
+
+    # 3. Clean any remaining splash feedback tmp files in temp directory
+    try:
+        import tempfile, glob
+        temp_dir = tempfile.gettempdir()
+        for f in glob.glob(os.path.join(temp_dir, "onefile_*_splash_feedback.tmp")):
+            try:
+                os.unlink(f)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 4. Find and close any lingering Windows splash window with class "Splash"
+    try:
+        import win32gui, win32con
+        def enum_cb(hwnd, _):
+            if win32gui.GetClassName(hwnd) == "Splash":
+                win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        win32gui.EnumWindows(enum_cb, None)
+    except Exception:
+        pass
+
+
+def set_global_splash(splash):
+    global GLOBAL_SPLASH
+    GLOBAL_SPLASH = splash
+
+
+def get_global_splash():
+    global GLOBAL_SPLASH
+    return GLOBAL_SPLASH
+
+
+def InitWindowSetText(text, delay_ms=120):
+    global GLOBAL_SPLASH
+    if GLOBAL_SPLASH is not None:
+        GLOBAL_SPLASH.set_status(str(text), delay_ms=delay_ms)
 
 
 def InitWindowClose():
-    if getattr(sys, "frozen", False):
-        try:
-            import pyi_splash
-            pyi_splash.update_text("application")
-            pyi_splash.close()
-        except:
-            pass
+    global GLOBAL_SPLASH
+    if GLOBAL_SPLASH is not None:
+        InitWindowSetText("Ready!", delay_ms=80)
+        close_nuitka_splash()
+        if hasattr(ModCreator, 'app') and ModCreator.app:
+            GLOBAL_SPLASH.finish(ModCreator.app)
+        else:
+            GLOBAL_SPLASH.close()
+        GLOBAL_SPLASH = None
 
 
 def TerminateApp():
@@ -143,12 +228,12 @@ class ModCreator(QMainWindow):
 
         QExecMainThread.init(self)
 
-        InitWindowSetText("ui")
+        InitWindowSetText("Loading user interface...")
 
         self.setWindowTitle(PROGRAM_NAME)
         self.setWindowIcon(QIcon(':/icons/resources/icons/App.ico'))
 
-        self.loading = Loading()
+        self.loading = Loading(is_creator=True)
         self.header = HeaderFrame(githubMethod=lambda: webbrowser.open(f"{GITHUB}/{REPO}"),
                                   supportMethod=lambda: webbrowser.open(SUPPORT_URL),
                                   infoMethod=self.showInformation)
@@ -185,8 +270,8 @@ class ModCreator(QMainWindow):
             cacheSize=cacheSize
         )
         self.bulkOperationCount = 0
-        self.currentSortField = "Name"
-        self.currentSortReverse = False
+        self.currentSortField = getattr(self.config, 'sortField', 'Date') or 'Date'
+        self.currentSortReverse = getattr(self.config, 'sortReverse', True) if getattr(self.config, 'sortReverse', None) is not None else True
         self.setLoadingScreen()
         self.header.setSettingsButtonPressed(self.setSettingsScreen)
         self.header.setModsButtonPressed(lambda: self.checkUnsavedSettings(self.setModsScreen))
@@ -207,7 +292,7 @@ class ModCreator(QMainWindow):
             self.controllerGetterTimer.start(10)
         else:
             err_str = str(CORE_IMPORT_ERROR).lower() if CORE_IMPORT_ERROR else ""
-            is_java_error = not CORE_IMPORT_ERROR or any(k in err_str for k in ["java not found", "_jpype", "jpype", "jvmnotfoundexception", "jvm"])
+            is_java_error = not CORE_IMPORT_ERROR or any(k in err_str for k in ["java not found", "jvmnotfoundexception"])
             if not is_java_error:
                 message = f"Error importing core:\n\n{CORE_IMPORT_ERROR}\n\nPlease check your installation."
             else:
@@ -226,9 +311,12 @@ class ModCreator(QMainWindow):
         self.__class__.app = self
 
     def runController(self):
-        self.loading.setText("Loading ModLoader Core")
+        self.loading.setStep(1, "success")
+        self.loading.setStep(2, "success")
+        self.loading.setStep(3, "active")
 
         self.controller = core.Controller()
+        self.loading.setStep(3, "success")
         self.controller.setDefaultMetadata(
             self.config.defaultAuthor,
             self.config.defaultGameVersion,
@@ -292,7 +380,7 @@ class ModCreator(QMainWindow):
             if ntype == NotificationType.LoadingModSource:
                 modPath = notification.args[0]
                 try:
-                    self.loading.setText(f"Loading mod '{modPath}'")
+                    self.loading.setMod(modPath)
                 except RuntimeError:
                     pass
 
@@ -449,10 +537,14 @@ class ModCreator(QMainWindow):
                 self.progressDialog.addValue()
             elif ntype == NotificationType.CompileModSourcesFinished:
                 modHash = notification.args[0]
+                elapsed = notification.args[1] if len(notification.args) > 1 else None
+                message = (notification.args[2] if len(notification.args) > 2 else
+                           (f"Build completed in {float(elapsed):.2f} seconds."
+                            if elapsed is not None else "Build completed."))
                 self.showErrorNotifications()
 
-                # Optimized reload: only reload the mod we just built
-                self.controller.reloadMod(modHash)
+                # The worker already reloads the newly published bmod before
+                # emitting Finished. Avoid opening/checking it a second time.
                 self.controller.getModsData()
 
                 # Update UI for this mod
@@ -463,8 +555,20 @@ class ModCreator(QMainWindow):
                 if self.mods.selectedModButton and self.mods.selectedModButton.modClass.hash == modHash:
                     self.mods.updateAll()
 
-                self.progressDialog.hide()
                 self.bulkOperationCount = 0
+                self.progressDialog.setTitle("Build completed")
+                self.progressDialog.setContent(message)
+                self.progressDialog.setValue(self.progressDialog.ui.progressBar.maximum())
+
+                # Keep the existing progress overlay briefly as the success
+                # notification.  Do not let an old timer hide a newer job.
+                def hideCompletedBuild(expectedMessage=message):
+                    if (self.progressDialog.isShown() and
+                            self.progressDialog.ui.title.text() == "Build completed" and
+                            self.progressDialog.ui.content.text() == expectedMessage):
+                        self.progressDialog.hide()
+
+                QTimer.singleShot(1000, hideCompletedBuild)
                 #print(f"[DL DEBUG] UI: Progress dialog HIDDEN (Compile Finished)")
 
             # Errors
@@ -512,7 +616,10 @@ class ModCreator(QMainWindow):
                                  currentVersion=modSourcesData.get("gameVersion", "") == \
                                                 modSourcesData.get("currentGameVersion", " "),
                                  # modFileExist=modData.get("modFileExist", False)
-                                 modSourcesPath=modSourcesData.get("modSourcesPath", ""), date=modSourcesData.get("date", 0.0))
+                                 modSourcesPath=modSourcesData.get("modSourcesPath", ""), date=modSourcesData.get("date", 0.0),
+                                 swfNames=modSourcesData.get("swfNames", []),
+                                 spriteNames=modSourcesData.get("spriteNames", []),
+                                 swfs=modSourcesData.get("swfs", {}))
 
                 self.mods.currentGameVersion = modSourcesData.get("currentGameVersion", "")
 
@@ -529,7 +636,11 @@ class ModCreator(QMainWindow):
                                     installed=modData.get("installed", False),
                                     modFileExist=modData.get("modFileExist", False))
 
+            self.mods.applySort(self.currentSortField, self.currentSortReverse)
             self.mods.updateAll()
+            if hasattr(self, 'loading'):
+                self.loading.setStep(4, "success", "Mods loaded")
+                self.loading.setStep(5, "success")
             self.setModsScreen()
             self.showErrorNotifications()
 
@@ -607,7 +718,10 @@ class ModCreator(QMainWindow):
                                  currentVersion=modSourcesData.get("gameVersion", "") == \
                                                 modSourcesData.get("currentGameVersion", " "),
                                  # modFileExist=modData.get("modFileExist", False)
-                                 modSourcesPath=modSourcesData.get("modSourcesPath", ""), date=modSourcesData.get("date", 0.0))
+                                 modSourcesPath=modSourcesData.get("modSourcesPath", ""), date=modSourcesData.get("date", 0.0),
+                                 swfNames=modSourcesData.get("swfNames", []),
+                                 spriteNames=modSourcesData.get("spriteNames", []),
+                                 swfs=modSourcesData.get("swfs", {}))
 
                 self.mods.currentGameVersion = modSourcesData.get("currentGameVersion", "")
             else:
@@ -1010,6 +1124,7 @@ class ModCreator(QMainWindow):
             if self.bulkOperationCount <= 0:
                 self.bulkOperationCount = 1
             modClass = self.mods.selectedModButton.modClass
+            print(f"[Creator DEBUG] installMod called for: '{modClass.name}' | hash: {modClass.hash} | modFileExist: {modClass.modFileExist}", flush=True)
             if modClass.modFileExist:
                 self.controller.getModConflict(modClass.hash)
 
@@ -1024,6 +1139,7 @@ class ModCreator(QMainWindow):
             
         if modButton is not None:
             modClass = modButton.modClass
+            print(f"[Creator DEBUG] uninstallMod called for: '{modClass.name}' | hash: {modClass.hash}", flush=True)
             self.controller.uninstallMod(modClass.hash)
 
     def reinstallMod(self):
@@ -1032,6 +1148,7 @@ class ModCreator(QMainWindow):
             
         if self.mods.selectedModButton is not None:
             modClass = self.mods.selectedModButton.modClass
+            print(f"[Creator DEBUG] reinstallMod called for: '{modClass.name}' | hash: {modClass.hash}", flush=True)
             self.controller.uninstallMod(modClass.hash)
             self.controller.getModConflict(modClass.hash)
 
@@ -1058,6 +1175,7 @@ class ModCreator(QMainWindow):
     def buildMod(self):
         if self.mods.selectedModButton is not None:
             modClass = self.mods.selectedModButton.modClass
+            print(f"[Creator DEBUG] buildMod (compileModSources) called for: '{modClass.name}' | hash: {modClass.hash}", flush=True)
             self.controller.compileModSources(modClass.hash)
 
     def createMod(self):
@@ -1158,9 +1276,36 @@ class ModCreator(QMainWindow):
             self.newVersion(newVersion, fileUrl, version, body)
 
 
+class BmodsSplash(QSplashScreen):
+    """
+    QSplashScreen that renders real-time dynamic loading text
+    at fixed position (202, 302) using Bespoke font.
+    """
+    def __init__(self, pixmap: QPixmap, font_family: str):
+        super().__init__(pixmap, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self._font_family = font_family
+        self._status = ""
+
+    def set_status(self, text: str, delay_ms: int = 120):
+        self._status = text
+        self.repaint()
+        QApplication.processEvents()
+        if delay_ms > 0:
+            import time
+            time.sleep(delay_ms / 1000.0)
+            QApplication.processEvents()
+
+    def drawContents(self, painter: QPainter):
+        if not self._status:
+            return
+        font = QFont(self._font_family, 13)
+        painter.setFont(font)
+        painter.setPen(QColor("#CCCCCC"))
+        painter.drawText(202, 302, self._status)
+
+
 def RunApp():
-    app = QApplication(sys.argv)
-    # font_db = QFontDatabase()
+    app = QApplication.instance() or QApplication(sys.argv)
     QFontDatabase.addApplicationFont(":/fonts/resources/fonts/Exo 2/Exo2-SemiBold.ttf")
     QFontDatabase.addApplicationFont(":/fonts/resources/fonts/Roboto/Roboto-Black.ttf")
     QFontDatabase.addApplicationFont(":/fonts/resources/fonts/Roboto/Roboto-BlackItalic.ttf")
@@ -1170,10 +1315,48 @@ def RunApp():
     QFontDatabase.addApplicationFont(":/fonts/resources/fonts/Roboto/Roboto-Medium.ttf")
     QFontDatabase.addApplicationFont(":/fonts/resources/fonts/Roboto/Roboto-MediumItalic.ttf")
     QFontDatabase.addApplicationFont(":/fonts/resources/fonts/Roboto/Roboto-Regular.ttf")
+
+    # Load Bespoke font for splash
+    font_family = "Arial"
+    bespoke_candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "ui_sources", "resources", "fonts", "Bespoke", "Bespoke.ttf"),
+        os.path.join(os.path.dirname(sys.executable), "ui", "ui_sources", "resources", "fonts", "Bespoke", "Bespoke.ttf"),
+    ]
+    for b_path in bespoke_candidates:
+        if os.path.exists(b_path):
+            f_id = QFontDatabase.addApplicationFont(b_path)
+            if f_id != -1:
+                fams = QFontDatabase.applicationFontFamilies(f_id)
+                if fams:
+                    font_family = fams[0]
+                    break
+
+    splash_candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "splash.png"),
+        os.path.join(os.path.dirname(sys.executable), "splash.png"),
+    ]
+    splash = get_global_splash()
+    if not splash:
+        for s_path in splash_candidates:
+            if os.path.exists(s_path):
+                pixmap = QPixmap(s_path)
+                if not pixmap.isNull():
+                    splash = BmodsSplash(pixmap, font_family)
+                    splash.show()
+                    set_global_splash(splash)
+                    break
+
+    InitWindowSetText("Loading mods sources and core...")
+
     window = ModCreator()
     window.show()
-    sys.exit(app.exec())
+
+    InitWindowClose()
+
+    exitId = app.exec()
+    TerminateApp()
 
 
 if __name__ == "__main__":
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     RunApp()

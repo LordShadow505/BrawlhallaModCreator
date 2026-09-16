@@ -18,7 +18,9 @@ class CreatorConfig:
             "defaultModVersion": "1.0",
             "brawlhallaPath": "",
             "modsPath": "",
-            "modsSourcesPath": ""
+            "modsSourcesPath": "",
+            "sortField": "Date",
+            "sortReverse": True
         }
         
         if os.path.exists(self.config_path):
@@ -92,3 +94,22 @@ class CreatorConfig:
     def modsSourcesPath(self, value):
         self.data["modsSourcesPath"] = value
         self._save()
+
+    @property
+    def sortField(self):
+        return self.data.get("sortField", self.defaults["sortField"])
+
+    @sortField.setter
+    def sortField(self, value):
+        self.data["sortField"] = value
+        self._save()
+
+    @property
+    def sortReverse(self):
+        return self.data.get("sortReverse", self.defaults["sortReverse"])
+
+    @sortReverse.setter
+    def sortReverse(self, value):
+        self.data["sortReverse"] = value
+        self._save()
+

@@ -1,10 +1,43 @@
 import os
 import sys
+
+# Detect frozen/compiled binary: supports both PyInstaller (sys.frozen) and Nuitka (__compiled__)
+_is_nuitka = False
+try:
+    _is_nuitka = bool(__compiled__)  # noqa - defined by Nuitka at compile time
+except NameError:
+    pass
+
+_IS_FROZEN = getattr(sys, 'frozen', False) or _is_nuitka
+
+if _IS_FROZEN:
+    # PyInstaller extracts to sys._MEIPASS; Nuitka onefile extracts next to __file__
+    if hasattr(sys, '_MEIPASS'):
+        _base_dir = sys._MEIPASS
+    else:
+        _base_dir = os.path.dirname(os.path.abspath(__file__))
+    os.environ['PATH'] = _base_dir + os.pathsep + os.path.join(_base_dir, 'PySide6') + os.pathsep + os.path.join(_base_dir, 'shiboken6') + os.pathsep + os.environ.get('PATH', '')
+    if hasattr(os, 'add_dll_directory'):
+        try:
+            os.add_dll_directory(_base_dir)
+        except Exception:
+            pass
+        for _sub in ['PySide6', 'shiboken6']:
+            _sub_dir = os.path.join(_base_dir, _sub)
+            if os.path.isdir(_sub_dir):
+                try:
+                    os.add_dll_directory(_sub_dir)
+                except Exception:
+                    pass
+    # Do not call SetDllDirectoryW here. It replaces the normal Windows DLL
+    # search path and prevents JPype from loading a JVM installed elsewhere.
+
 import traceback
 import threading
 import multiprocessing
 
 from ui.utils.systemdialog import Error
+
 
 
 def _bootstrap(self, parent_sentinel=None):
@@ -84,8 +117,100 @@ sys.excepthook = handle_exception
 threading.excepthook = lambda hook: handle_exception(hook.exc_type, hook.exc_value, hook.exc_traceback)
 
 
+def close_nuitka_splash():
+    """Ensure Nuitka onefile bootloader splash is completely closed/hidden."""
+    # 1. Official Nuitka onefile splash dismissal using NUITKA_ONEFILE_PARENT environment variable
+    try:
+        if "NUITKA_ONEFILE_PARENT" in os.environ:
+            import tempfile
+            splash_filename = os.path.join(
+                tempfile.gettempdir(),
+                "onefile_%d_splash_feedback.tmp" % int(os.environ["NUITKA_ONEFILE_PARENT"]),
+            )
+            if os.path.exists(splash_filename):
+                try:
+                    os.unlink(splash_filename)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Native module fallback if available
+    try:
+        import onefile_splash
+        onefile_splash.close()
+    except Exception:
+        pass
+
+    # 3. Clean any remaining splash feedback tmp files in temp directory
+    try:
+        import tempfile, glob
+        temp_dir = tempfile.gettempdir()
+        for f in glob.glob(os.path.join(temp_dir, "onefile_*_splash_feedback.tmp")):
+            try:
+                os.unlink(f)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 4. Find and close any lingering Windows splash window with class "Splash"
+    try:
+        import win32gui, win32con
+        def enum_cb(hwnd, _):
+            if win32gui.GetClassName(hwnd) == "Splash":
+                win32gui.ShowWindow(hwnd, win32con.SW_HIDE)
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        win32gui.EnumWindows(enum_cb, None)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__" and "--multiprocessing-fork" not in sys.argv:
-    from main import RunApp
+    import os
+    os.chdir(os.path.split(sys.argv[0])[0])
+
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QFontDatabase, QPixmap
+    from main import BmodsSplash, set_global_splash, InitWindowSetText, RunApp
+
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    font_family = "Arial"
+    bespoke_candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "ui_sources", "resources", "fonts", "Bespoke", "Bespoke.ttf"),
+        os.path.join(os.path.dirname(sys.executable), "ui", "ui_sources", "resources", "fonts", "Bespoke", "Bespoke.ttf"),
+    ]
+    for b_path in bespoke_candidates:
+        if os.path.exists(b_path):
+            f_id = QFontDatabase.addApplicationFont(b_path)
+            if f_id != -1:
+                fams = QFontDatabase.applicationFontFamilies(f_id)
+                if fams:
+                    font_family = fams[0]
+                    break
+
+    splash_candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "splash.png"),
+        os.path.join(os.path.dirname(sys.executable), "splash.png"),
+    ]
+    for s_path in splash_candidates:
+        if os.path.exists(s_path):
+            pixmap = QPixmap(s_path)
+            if not pixmap.isNull():
+                splash = BmodsSplash(pixmap, font_family)
+                splash.show()
+                set_global_splash(splash)
+                InitWindowSetText("Initializing Mod Creator...", delay_ms=100)
+                app.processEvents()
+                # Ensure dynamic splash is visibly rendered before dismissing Nuitka pre-splash
+                import time
+                time.sleep(0.05)
+                close_nuitka_splash()
+                break
+    else:
+        close_nuitka_splash()
+
     RunApp()
 
 elif "--multiprocessing-fork" in sys.argv:

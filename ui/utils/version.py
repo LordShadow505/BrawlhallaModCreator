@@ -9,7 +9,7 @@ GITHUB = "https://github.com"
 GITHUB_API = "https://api.github.com"
 REPO = "LordShadow505/BrawlhallaModCreator"
 
-VERSION = "0.4.0"
+VERSION = "0.4.2"
 GIT_VERSION = None
 PRERELEASE = True
 

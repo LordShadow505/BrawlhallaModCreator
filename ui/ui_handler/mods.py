@@ -1,3 +1,6 @@
+import os
+import json
+import sys
 from typing import List, Dict
 
 from PySide6.QtWidgets import QWidget, QFileDialog, QFrame, QVBoxLayout, QHBoxLayout, QApplication, QPushButton, QLabel
@@ -215,6 +218,72 @@ class Mods(QWidget):
         self.body.tags.installEventFilter(self)
         self.ui.modBody.installEventFilter(self)
 
+        # ── SECURITY SECTION IN CREATOR (English) ───────────────────────────
+        self.securitySectionFrame = QFrame()
+        self.securitySectionFrame.setStyleSheet("background-color: #1A1B1E; border-radius: 6px; border: 1px solid #2B2C30; margin: 4px 0px;")
+        secOuterLayout = QVBoxLayout(self.securitySectionFrame)
+        secOuterLayout.setContentsMargins(10, 8, 10, 8)
+        secOuterLayout.setSpacing(6)
+
+        secHeaderLayout = QHBoxLayout()
+        secHeaderLayout.setContentsMargins(0, 0, 0, 0)
+        secHeaderLayout.setSpacing(6)
+        secHeaderIcon = QLabel()
+        secHeaderIcon.setPixmap(QIcon(":/icons/resources/icons/Warning.png").pixmap(14, 14))
+        secHeaderIcon.setStyleSheet("background: transparent; border: none; padding: 0px;")
+        secHeaderLayout.addWidget(secHeaderIcon)
+        secHeaderTitle = QLabel("SECURITY")
+        secHeaderTitle.setStyleSheet("color: #a1a1aa; font-size: 11px; font-weight: bold; border: none; background: transparent; letter-spacing: 0.5px;")
+        secHeaderLayout.addWidget(secHeaderTitle)
+        secHeaderLayout.addStretch()
+        secOuterLayout.addLayout(secHeaderLayout)
+
+        self.secBadgesFrame = QFrame()
+        self.secBadgesFrame.setStyleSheet("background: transparent; border: none;")
+        self.secBadgesLayout = QHBoxLayout(self.secBadgesFrame)
+        self.secBadgesLayout.setContentsMargins(0, 0, 0, 0)
+        self.secBadgesLayout.setSpacing(8)
+        self.secBadgesLayout.setAlignment(Qt.AlignLeft)
+        secOuterLayout.addWidget(self.secBadgesFrame)
+
+        self.secStatusDescLabel = QLabel()
+        self.secStatusDescLabel.setWordWrap(True)
+        self.secStatusDescLabel.setStyleSheet("color: #94a3b8; font-size: 10px; border: none; background: transparent;")
+        secOuterLayout.addWidget(self.secStatusDescLabel)
+
+        # Expandable threat details toggle button
+        self.secDetailsToggleBtn = QPushButton("Show Details ▼")
+        self.secDetailsToggleBtn.setCursor(Qt.PointingHandCursor)
+        self.secDetailsToggleBtn.setStyleSheet("""
+            QPushButton {
+                color: #f87171;
+                font-size: 10px;
+                font-weight: bold;
+                background: transparent;
+                border: none;
+                text-align: left;
+                padding: 2px 0px;
+            }
+            QPushButton:hover {
+                color: #ef4444;
+                text-decoration: underline;
+            }
+        """)
+        self.secDetailsToggleBtn.clicked.connect(self._toggleSecurityDetails)
+        self.secDetailsToggleBtn.hide()
+        secOuterLayout.addWidget(self.secDetailsToggleBtn)
+
+        # Threat details container
+        self.secDetailsContainer = QFrame()
+        self.secDetailsContainer.setStyleSheet("background-color: #1e1113; border: 1px solid #7f1d1d; border-radius: 4px;")
+        self.secDetailsLayout = QVBoxLayout(self.secDetailsContainer)
+        self.secDetailsLayout.setContentsMargins(8, 6, 8, 6)
+        self.secDetailsLayout.setSpacing(4)
+        self.secDetailsContainer.hide()
+        secOuterLayout.addWidget(self.secDetailsContainer)
+
+        self.body.verticalLayout_2.addWidget(self.securitySectionFrame)
+
         # Warning Notice
         self.warningFrame = QFrame()
         self.warningFrame.setStyleSheet("background-color: #1D1E20; border-bottom: 1px solid #333333;")
@@ -284,8 +353,10 @@ class Mods(QWidget):
         self.ui.updateAllMods.setEnabled(False)
         self.ui.updateAllMods.hide()
 
-        self.ui.searchArea.textChanged.connect(self.searchEvent)
-
+        from ..utils.config import CreatorConfig
+        cfg = CreatorConfig()
+        self.currentSortField = cfg.sortField
+        self.currentSortReverse = cfg.sortReverse
         self.nameSortReverse = False
         self.dateSortReverse = True
 
@@ -536,6 +607,101 @@ class Mods(QWidget):
             else:
                 previewSetter.clearPreview()
 
+    def _toggleSecurityDetails(self):
+        if hasattr(self, 'secDetailsContainer') and hasattr(self, 'secDetailsToggleBtn'):
+            is_vis = self.secDetailsContainer.isVisible()
+            self.secDetailsContainer.setVisible(not is_vis)
+            self.secDetailsToggleBtn.setText("Hide Details ▲" if not is_vis else "Show Details ▼")
+
+    def updateSecuritySection(self):
+        if not self.selectedModButton:
+            return
+        modClass = self.selectedModButton.modClass
+
+        while self.secBadgesLayout.count():
+            item = self.secBadgesLayout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        mod_src = getattr(modClass, "modSourcesPath", "")
+        has_ui = False
+        is_bmt = False
+        threats = []
+
+        if mod_src and os.path.exists(mod_src):
+            try:
+                from ..utils.security_scanner import scan_mod_source_or_file
+                from pathlib import Path
+                scan_res = scan_mod_source_or_file(Path(mod_src))
+                has_ui = scan_res.get("has_ui_mainmenu", False)
+                threats = scan_res.get("threats", [])
+                is_bmt = scan_res.get("is_certified", False)
+            except Exception as se:
+                print(f"[Creator Security] Scan error: {se}")
+
+        def _add_badge(label, dot_col, bg_col, bdr_col):
+            b_frame = QFrame()
+            b_frame.setFixedHeight(32)
+            b_frame.setStyleSheet(f"background-color: {bg_col}; border-radius: 5px; border: 1px solid {bdr_col};")
+            b_lay = QHBoxLayout(b_frame)
+            b_lay.setContentsMargins(10, 0, 10, 0)
+            b_lay.setSpacing(6)
+            d_lbl = QLabel("●")
+            d_lbl.setStyleSheet(f"color: {dot_col}; font-size: 9px; border: none; background: transparent;")
+            b_lay.addWidget(d_lbl)
+            t_lbl = QLabel(label)
+            t_lbl.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: bold; border: none; background: transparent;")
+            b_lay.addWidget(t_lbl)
+            self.secBadgesLayout.addWidget(b_frame)
+
+        if threats:
+            _add_badge("Security Warning", "#ef4444", "#2c1215", "#ef4444")
+            self.secStatusDescLabel.setText(f"CRITICAL WARNING: {len(threats)} suspicious executable script(s) or pattern(s) detected in mod source.")
+            self.secStatusDescLabel.setStyleSheet("color: #ef4444; font-size: 10px; font-weight: bold; border: none; background: transparent;")
+
+            if hasattr(self, 'secDetailsLayout'):
+                while self.secDetailsLayout.count():
+                    it = self.secDetailsLayout.takeAt(0)
+                    w = it.widget()
+                    if w:
+                        w.deleteLater()
+
+                for t in threats:
+                    t_snip = t.get("snippet", "Suspicious Code")
+                    t_file = t.get("file", "UI_MainMenu.swf")
+                    t_desc = t.get("description", "Potential external process execution or unauthorized network activity.")
+                    t_lbl = QLabel(f"<span style='color: #ef4444; font-size: 10px;'>●</span> <b style='color: #fca5a5;'>{t_file}</b>: <code style='color: #fef08a; background: #2b1114; padding: 1px 4px; border-radius: 3px;'>{t_snip}</code><br><span style='color: #cbd5e1; font-size: 9px; padding-left: 8px;'>{t_desc}</span>")
+                    t_lbl.setWordWrap(True)
+                    t_lbl.setStyleSheet("color: #fca5a5; font-size: 10px; border: none; background: transparent; margin-bottom: 2px;")
+                    self.secDetailsLayout.addWidget(t_lbl)
+
+            if hasattr(self, 'secDetailsToggleBtn'):
+                self.secDetailsToggleBtn.setText("Show Details ▼")
+                self.secDetailsToggleBtn.show()
+            if hasattr(self, 'secDetailsContainer'):
+                self.secDetailsContainer.hide()
+        else:
+            if hasattr(self, 'secDetailsToggleBtn'):
+                self.secDetailsToggleBtn.hide()
+            if hasattr(self, 'secDetailsContainer'):
+                self.secDetailsContainer.hide()
+
+            _add_badge("Mod Creator Certified", "#c084fc", "#221338", "#a855f7")
+
+            if is_bmt:
+                _add_badge("BMT Certified", "#07c9d7", "#0c2429", "#07c9d7")
+                self.secStatusDescLabel.setText("Official verified clean mod source created with Brawlhalla Modding Toolkit.")
+                self.secStatusDescLabel.setStyleSheet("color: #07c9d7; font-size: 10px; border: none; background: transparent;")
+            elif has_ui:
+                _add_badge("Custom UI", "#94a3b8", "#1e293b", "#475569")
+                self.secStatusDescLabel.setText("Clean files without BMT certification.")
+                self.secStatusDescLabel.setStyleSheet("color: #94a3b8; font-size: 10px; border: none; background: transparent;")
+            else:
+                _add_badge("Verified Safe Assets", "#34d399", "#06281e", "#10b981")
+                self.secStatusDescLabel.setText("Standard game asset mod source. Zero executable code risk.")
+                self.secStatusDescLabel.setStyleSheet("color: #34d399; font-size: 10px; border: none; background: transparent;")
+
     def updateAll(self):
         if self.selectedModButton is not None:
             self.updateName()
@@ -546,6 +712,7 @@ class Mods(QWidget):
             self.updateDescription()
             self.updatePreviews()
             self.updateModSourcesPath()
+            self.updateSecuritySection()
 
             for modButton in self.modsButtons:
                 modButton.updateData()
@@ -568,7 +735,6 @@ class Mods(QWidget):
 
         if not self.selectedModButton:
             modButton.select()
-            self.saveTimer.start(3000)
 
     def addMod(self,
                gameVersion: str,
@@ -584,7 +750,10 @@ class Mods(QWidget):
                currentVersion: bool,
                #modFileExist: bool
                modSourcesPath: str,
-               date: float = 0.0):
+               date: float = 0.0,
+               swfNames=None,
+               spriteNames=None,
+               swfs=None):
 
         modSources = ModClass(gameVersion=gameVersion,
                               name=name,
@@ -599,7 +768,10 @@ class Mods(QWidget):
                               currentVersion=currentVersion,
                               modFileExist=False,
                               modSourcesPath=modSourcesPath,
-                              date=date)
+                              date=date,
+                              swfNames=swfNames,
+                              spriteNames=spriteNames,
+                              swfs=swfs)
 
         self.modsSources[hash] = modSources
         self.addModButton(modSources)
@@ -650,7 +822,7 @@ class Mods(QWidget):
                 border: 1px solid #404146;
             }
             QMenu::item:selected {
-                background-color: #7E57C2;
+                background-color: #42A5F5;
                 color: #ffffff;
             }
         """)
@@ -691,6 +863,13 @@ class Mods(QWidget):
         self.applySort("Date", True)
 
     def applySort(self, field, reverse):
+        self.currentSortField = field
+        self.currentSortReverse = reverse
+        from ..utils.config import CreatorConfig
+        cfg = CreatorConfig()
+        cfg.sortField = field
+        cfg.sortReverse = reverse
+
         if field == "Name":
             self.modsButtons.sort(key=lambda x: x.modClass.name.lower(), reverse=reverse)
         elif field == "Date":
