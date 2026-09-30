@@ -12,12 +12,15 @@ from ..ui_sources.ui_mod_button import Ui_ModButton
 class ModButton(QWidget):
     buttons = []
 
-    def __init__(self, modClass: ModClass, method):
+    def __init__(self, modClass: ModClass, method, parent=None):
         self.pressed = False
         self.modClass = modClass
         self.method = method
 
-        super().__init__()
+        # Keep rows owned by the list from construction.  Otherwise every
+        # rapid source refresh can expose a temporary top-level Qt window
+        # titled "Form" before the layout reparents it.
+        super().__init__(parent)
 
         self.ui = Ui_ModButton()
         self.ui.setupUi(self)

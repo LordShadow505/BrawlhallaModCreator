@@ -1,27 +1,29 @@
 import os
 import sys
 
-# Ensure PyInstaller runtime directories are registered for Windows DLL search
-if getattr(sys, 'frozen', False):
-    _base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-    os.environ['PATH'] = _base_dir + os.pathsep + os.path.join(_base_dir, 'PySide6') + os.pathsep + os.path.join(_base_dir, 'shiboken6') + os.pathsep + os.environ.get('PATH', '')
+_DLL_DIRECTORY_HANDLES = []
+
+# Ensure PyInstaller and Nuitka runtime directories are registered for Windows DLL search.
+_is_nuitka = '__compiled__' in globals()
+if getattr(sys, 'frozen', False) or _is_nuitka:
+    _base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    _runtime_dll_dirs = [
+        _base_dir,
+        os.path.join(_base_dir, '_jpype'),
+        os.path.join(_base_dir, 'PySide6'),
+        os.path.join(_base_dir, 'shiboken6'),
+    ]
+    os.environ['PATH'] = os.pathsep.join(
+        [path for path in _runtime_dll_dirs if os.path.isdir(path)]
+        + [os.environ.get('PATH', '')]
+    )
     if hasattr(os, 'add_dll_directory'):
-        try:
-            os.add_dll_directory(_base_dir)
-        except Exception:
-            pass
-        for _sub in ['PySide6', 'shiboken6']:
-            _sub_dir = os.path.join(_base_dir, _sub)
-            if os.path.isdir(_sub_dir):
+        for _dll_dir in _runtime_dll_dirs:
+            if os.path.isdir(_dll_dir):
                 try:
-                    os.add_dll_directory(_sub_dir)
+                    _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(_dll_dir))
                 except Exception:
                     pass
-    try:
-        import ctypes
-        ctypes.windll.kernel32.SetDllDirectoryW(_base_dir)
-    except Exception:
-        pass
 
 import threading
 import webbrowser
@@ -270,8 +272,21 @@ class ModCreator(QMainWindow):
             cacheSize=cacheSize
         )
         self.bulkOperationCount = 0
+        # Ignore duplicate conflict searches caused by rapid clicks/typing;
+        # one source install may have only one active conflict decision.
+        self._conflict_request_hash = None
+        self._conflict_dialog_hash = None
+        self._conflict_decision_hash = None
+        self._active_install_hash = None
         self.currentSortField = getattr(self.config, 'sortField', 'Date') or 'Date'
         self.currentSortReverse = getattr(self.config, 'sortReverse', True) if getattr(self.config, 'sortReverse', None) is not None else True
+        self._source_load_generation = 0
+        self._pending_source_data = []
+        self._pending_source_index = 0
+        self._source_loading = False
+        self._source_data_received = False
+        self._source_ui_initialized = False
+        self._pending_mod_flags = None
         self.setLoadingScreen()
         self.header.setSettingsButtonPressed(self.setSettingsScreen)
         self.header.setModsButtonPressed(lambda: self.checkUnsavedSettings(self.setModsScreen))
@@ -368,6 +383,83 @@ class ModCreator(QMainWindow):
                 traceback.print_exc()
                 break
 
+    def _start_source_data_load(self, source_data):
+        """Populate source cards in small batches to keep Creator responsive."""
+        self._source_load_generation += 1
+        generation = self._source_load_generation
+        self._source_data_received = True
+        self._source_ui_initialized = False
+        self._pending_source_data = list(source_data or [])
+        self._pending_source_index = 0
+        self._source_loading = True
+        self.mods._defer_selection = True
+        self._load_source_data_batch(generation)
+
+    def _load_source_data_batch(self, generation):
+        if generation != self._source_load_generation:
+            return
+
+        batch_end = min(self._pending_source_index + 24, len(self._pending_source_data))
+        for modSourcesData in self._pending_source_data[self._pending_source_index:batch_end]:
+            self.mods.addMod(gameVersion=modSourcesData.get("gameVersion", ""),
+                             name=modSourcesData.get("name", ""),
+                             author=modSourcesData.get("author", ""),
+                             version=modSourcesData.get("version", ""),
+                             description=modSourcesData.get("description", ""),
+                             tags=modSourcesData.get("tags", []),
+                             previewsPaths=modSourcesData.get("previewsPaths", []),
+                             hash=modSourcesData.get("hash", ""),
+                             platform=modSourcesData.get("platform", ""),
+                             currentVersion=modSourcesData.get("gameVersion", "") == modSourcesData.get("currentGameVersion", " "),
+                             modSourcesPath=modSourcesData.get("modSourcesPath", ""),
+                             date=modSourcesData.get("date", 0.0),
+                             swfNames=modSourcesData.get("swfNames", []),
+                             spriteNames=modSourcesData.get("spriteNames", []),
+                             swfs=modSourcesData.get("swfs", {}))
+            self.mods.currentGameVersion = modSourcesData.get("currentGameVersion", "")
+
+        self._pending_source_index = batch_end
+        if self._pending_source_index < len(self._pending_source_data):
+            QTimer.singleShot(0, lambda: self._load_source_data_batch(generation))
+            return
+
+        self._pending_source_data = []
+        self._source_loading = False
+        self.mods._defer_selection = False
+        if self.mods.modsButtons and self.mods.selectedModButton is None:
+            self.mods.modsButtons[0].select()
+
+        if self._pending_mod_flags is not None:
+            flags = self._pending_mod_flags
+            self._pending_mod_flags = None
+            self._apply_mod_flags(flags)
+
+    def _apply_mod_flags(self, mod_data):
+        # Reset flags for all known mods first to clear stale data.
+        for mod in self.mods.modsSources.values():
+            mod.modFileExist = False
+            mod.installed = False
+
+        for modData in mod_data or []:
+            self.mods.updateMod(hash=modData.get("hash", ""),
+                                installed=modData.get("installed", False),
+                                modFileExist=modData.get("modFileExist", False))
+
+        if not self._source_ui_initialized:
+            # The first metadata response assembles the list once.  Later
+            # responses (build/install/uninstall) only change per-mod flags;
+            # rebuilding every card here was the main source of UI stalls.
+            self.mods.applySort(self.currentSortField, self.currentSortReverse)
+            self._source_ui_initialized = True
+            self.mods.updateAll()
+        elif self.mods.selectedModButton is not None:
+            self.mods.updateAll(update_buttons=False)
+        if hasattr(self, 'loading'):
+            self.loading.setStep(4, "success", "Mods loaded")
+            self.loading.setStep(5, "success")
+        self.setModsScreen()
+        self.showErrorNotifications()
+
     def _processControllerData(self, data):
         cmd = data[0]
 
@@ -395,10 +487,25 @@ class ModCreator(QMainWindow):
                 self.progressDialog.addValue()
             elif ntype == NotificationType.ModConflictNotFound:
                 modHash, = notification.args
+                if self._active_install_hash or self._conflict_decision_hash == modHash:
+                    return
+                if self._conflict_request_hash not in (None, modHash):
+                    return
+                self._conflict_request_hash = None
+                self._active_install_hash = modHash
                 self.progressDialog.setValue(0)
                 self.controller.installMod(modHash)
             elif ntype == NotificationType.ModConflict:
                 modHash, modConflictHashes = notification.args
+                if self._active_install_hash or self._conflict_dialog_hash is not None or self._conflict_decision_hash == modHash:
+                    # The same search can report more than once if the user
+                    # clicked install repeatedly while the worker was busy.
+                    return
+                if self._conflict_request_hash not in (None, modHash):
+                    return
+                self._conflict_request_hash = None
+                self._conflict_dialog_hash = modHash
+                self._conflict_decision_hash = modHash
                 self.acceptDialog.setTitle("Conflict mods!")
                 content = "Mods:"
 
@@ -412,8 +519,18 @@ class ModCreator(QMainWindow):
                         #print("ERROR: One of the installed mods was not found in the ModLoader!")
 
                 self.acceptDialog.setContent(content)
-                self.acceptDialog.setAccept(lambda: [self.acceptDialog.hide(), self.controller.installMod(modHash)])
-                self.acceptDialog.setCancel(self.acceptDialog.hide)
+                def accept_conflict():
+                    self.acceptDialog.hide()
+                    self._conflict_dialog_hash = None
+                    self._active_install_hash = modHash
+                    self.controller.installMod(modHash)
+
+                def cancel_conflict():
+                    self.acceptDialog.hide()
+                    self._conflict_dialog_hash = None
+
+                self.acceptDialog.setAccept(accept_conflict)
+                self.acceptDialog.setCancel(cancel_conflict)
 
                 self.progressDialog.hide()
                 self.acceptDialog.show()
@@ -440,6 +557,10 @@ class ModCreator(QMainWindow):
                 self.progressDialog.addValue()
             elif ntype == NotificationType.InstallingModFinished:
                 modHash = notification.args[0]
+                if self._active_install_hash not in (None, modHash):
+                    return
+                self._active_install_hash = None
+                self._conflict_decision_hash = None
                 modClass = self.mods.modsSources.get(modHash)
                 if modClass:
                     modClass.installed = True
@@ -452,7 +573,12 @@ class ModCreator(QMainWindow):
                 
                 # Update main view if it's the selected one
                 if self.mods.selectedModButton and self.mods.selectedModButton.modClass.hash == modHash:
-                    self.mods.updateAll()
+                    # The model and list row are updated above, but the
+                    # selected details panel owns the Install/Reinstall/
+                    # Uninstall action widgets.  Rebuild that small action
+                    # row immediately so it reflects the finished operation
+                    # without requiring another mod selection.
+                    self.mods.updateButtons()
                 
                 if self.bulkOperationCount > 0:
                     self.bulkOperationCount -= 1
@@ -462,9 +588,6 @@ class ModCreator(QMainWindow):
                     self.progressDialog.hide()
                     #print(f"[DL DEBUG] UI: Progress dialog HIDDEN (Install Finished)")
 
-                if self.currentSortField == "Installed":
-                    self.mods.applySort(self.currentSortField, self.currentSortReverse)
-                    
                 self.showErrorNotifications()
                 #print(f"[DL DEBUG] UI: Installation Finished processed for {modHash}")
 
@@ -498,7 +621,7 @@ class ModCreator(QMainWindow):
                 
                 # Update main view if it's the selected one
                 if self.mods.selectedModButton and self.mods.selectedModButton.modClass.hash == modHash:
-                    self.mods.updateAll()
+                    self.mods.updateButtons()
 
                 if self.bulkOperationCount > 0:
                     self.bulkOperationCount -= 1
@@ -508,9 +631,6 @@ class ModCreator(QMainWindow):
                     self.progressDialog.hide()
                     #print(f"[DL DEBUG] UI: Progress dialog HIDDEN (Uninstall Finished)")
 
-                if self.currentSortField == "Installed":
-                    self.mods.applySort(self.currentSortField, self.currentSortReverse)
-                    
                 self.showErrorNotifications()
                 #print(f"[DL DEBUG] UI: Uninstallation Finished for {modHash}")
 
@@ -553,7 +673,7 @@ class ModCreator(QMainWindow):
                         btn.updateData()
                         break
                 if self.mods.selectedModButton and self.mods.selectedModButton.modClass.hash == modHash:
-                    self.mods.updateAll()
+                    self.mods.updateAll(update_buttons=False)
 
                 self.bulkOperationCount = 0
                 self.progressDialog.setTitle("Build completed")
@@ -599,50 +719,23 @@ class ModCreator(QMainWindow):
                     self.controller.getModsData()
 
             elif ntype == NotificationType.FatalError:
+                self._conflict_request_hash = None
+                self._conflict_dialog_hash = None
+                self._conflict_decision_hash = None
+                self._active_install_hash = None
                 self.showError("Fatal Error:", notification.args[0])
 
         elif cmd == Environment.GetModsSourcesData:
-            for modSourcesData in data[1]:
-                self.mods.addMod(gameVersion=modSourcesData.get("gameVersion", ""),
-                                 name=modSourcesData.get("name", ""),
-                                 author=modSourcesData.get("author", ""),
-                                 version=modSourcesData.get("version", ""),
-                                 description=modSourcesData.get("description", ""),
-                                 tags=modSourcesData.get("tags", []),
-                                 previewsPaths=modSourcesData.get("previewsPaths", []),
-                                 hash=modSourcesData.get("hash", ""),
-                                 platform=modSourcesData.get("platform", ""),
-                                 # installed=modData.get("installed", False),
-                                 currentVersion=modSourcesData.get("gameVersion", "") == \
-                                                modSourcesData.get("currentGameVersion", " "),
-                                 # modFileExist=modData.get("modFileExist", False)
-                                 modSourcesPath=modSourcesData.get("modSourcesPath", ""), date=modSourcesData.get("date", 0.0),
-                                 swfNames=modSourcesData.get("swfNames", []),
-                                 spriteNames=modSourcesData.get("spriteNames", []),
-                                 swfs=modSourcesData.get("swfs", {}))
-
-                self.mods.currentGameVersion = modSourcesData.get("currentGameVersion", "")
-
-            self.showErrorNotifications()
+            self._start_source_data_load(data[1])
 
         elif cmd == Environment.GetModsData:
-            # Reset flags for all known mods first to clear stale data
-            for mod in self.mods.modsSources.values():
-                mod.modFileExist = False
-                mod.installed = False
-
-            for modData in data[1]:
-                self.mods.updateMod(hash=modData.get("hash", ""),
-                                    installed=modData.get("installed", False),
-                                    modFileExist=modData.get("modFileExist", False))
-
-            self.mods.applySort(self.currentSortField, self.currentSortReverse)
-            self.mods.updateAll()
-            if hasattr(self, 'loading'):
-                self.loading.setStep(4, "success", "Mods loaded")
-                self.loading.setStep(5, "success")
-            self.setModsScreen()
-            self.showErrorNotifications()
+            self._pending_mod_flags = data[1]
+            # Core replies are queued asynchronously; wait for source cards
+            # even if the mod-file response happens to arrive first.
+            if not self._source_loading and self._source_data_received:
+                flags = self._pending_mod_flags
+                self._pending_mod_flags = None
+                self._apply_mod_flags(flags)
 
         elif cmd == Environment.GetModConflict:
             searching, modHash = data[1]
@@ -831,6 +924,10 @@ class ModCreator(QMainWindow):
 
     @QExecMainThread
     def showError(self, title, content, action=None, terminate=False):
+        self._conflict_request_hash = None
+        self._conflict_dialog_hash = None
+        self._conflict_decision_hash = None
+        self._active_install_hash = None
         self.buttonsDialog.setTitle(title)
 
         if self.acceptDialog.isShown():
@@ -1121,11 +1218,20 @@ class ModCreator(QMainWindow):
             return
             
         if self.mods.selectedModButton is not None:
+            modClass = self.mods.selectedModButton.modClass
+            self._conflict_decision_hash = None
+            if self._conflict_request_hash or self._conflict_dialog_hash or self._active_install_hash:
+                print(
+                    f"[Creator Install] Ignoring duplicate request for {modClass.hash!r}; "
+                    "a conflict decision is already active.",
+                    flush=True,
+                )
+                return
             if self.bulkOperationCount <= 0:
                 self.bulkOperationCount = 1
-            modClass = self.mods.selectedModButton.modClass
             print(f"[Creator DEBUG] installMod called for: '{modClass.name}' | hash: {modClass.hash} | modFileExist: {modClass.modFileExist}", flush=True)
             if modClass.modFileExist:
+                self._conflict_request_hash = modClass.hash
                 self.controller.getModConflict(modClass.hash)
 
     def uninstallMod(self, modButton=None):
@@ -1192,6 +1298,21 @@ class ModCreator(QMainWindow):
             self.controller.createMod(folderName)
 
     def reloadMods(self):
+        # Invalidate any pending UI batches before replacing the source list.
+        # Without this guard, a queued timer from the previous load could add
+        # stale cards after a manual refresh or a delete operation.
+        self._conflict_request_hash = None
+        self._conflict_dialog_hash = None
+        self._conflict_decision_hash = None
+        self._active_install_hash = None
+        self._source_load_generation += 1
+        self._pending_source_data = []
+        self._pending_source_index = 0
+        self._pending_mod_flags = None
+        self._source_loading = False
+        self._source_data_received = False
+        self._source_ui_initialized = False
+        self.mods._defer_selection = False
         self.setLoadingScreen()
         self.mods.removeAllMods()
         self.controller.reloadModsSources()
@@ -1213,7 +1334,8 @@ class ModCreator(QMainWindow):
         modClass = self.mods.selectedModButton.modClass
         self.controller.deleteModSources(modClass.hash)
         self.buttonsDialog.hide()
-        self.reloadMods()
+        # Keep the rest of the source list and its widgets intact.
+        self.mods.removeMod(modClass.hash)
 
     def deleteModAllData(self):
         self.deleteModFile()

@@ -35,8 +35,10 @@ def SelectImageDialog():
 class SetPreview(QWidget):
     cachedPreviews = {}
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        # Construct preview editors with their container already assigned so
+        # rapid source loading cannot expose them as top-level "Form" windows.
+        super().__init__(parent)
         self.ui = Ui_SetPreviewWidget()
         self.ui.setupUi(self)
 
@@ -151,6 +153,14 @@ class Mods(QWidget):
 
         self.ui = Ui_Mods()
         self.ui.setupUi(self)
+        # Keep both bottom action strips consistent with the dark UI.  The
+        # generated Qt frame style otherwise falls back to a light gray panel.
+        dark_action_bar = (
+            "QFrame { background-color: #1B1C20; border: none; }"
+        )
+        for action_frame in (self.ui.modsListActions, self.ui.modsBuildActions,
+                             self.ui.leftButtons, self.ui.rightButtons):
+            action_frame.setStyleSheet(dark_action_bar)
         self.sortCallback = sortCallback
 
         self.setStyleSheet("""
@@ -199,11 +209,10 @@ class Mods(QWidget):
         # Filling previews grid
         for r in range(2):
             for c in range(3):
-                previewSetter = SetPreview()
+                previewSetter = SetPreview(self.body.previews)
                 previewSetter.previewAdded = self.previewSelected
                 previewSetter.previewChanged = self.previewSelected
                 previewSetter.previewDeleted = self.previewSelected
-                previewSetter.setParent(self.body.previews)
                 self.body.previews.layout().addWidget(previewSetter, r, c)
                 self.previewSetters.append(previewSetter)
 
@@ -702,7 +711,7 @@ class Mods(QWidget):
                 self.secStatusDescLabel.setText("Standard game asset mod source. Zero executable code risk.")
                 self.secStatusDescLabel.setStyleSheet("color: #34d399; font-size: 10px; border: none; background: transparent;")
 
-    def updateAll(self):
+    def updateAll(self, update_buttons=True):
         if self.selectedModButton is not None:
             self.updateName()
             self.updateAuthor()
@@ -714,10 +723,11 @@ class Mods(QWidget):
             self.updateModSourcesPath()
             self.updateSecuritySection()
 
-            for modButton in self.modsButtons:
-                modButton.updateData()
+            if update_buttons:
+                for modButton in self.modsButtons:
+                    modButton.updateData()
 
-            self.updateButtons()
+                self.updateButtons()
 
     # Actions
     def selectMod(self, modClass: ModClass):
@@ -729,11 +739,12 @@ class Mods(QWidget):
 
     def addModButton(self, modClass: ModClass):
         modButton = ModButton(modClass=modClass,
-                              method=self.selectMod)
+                              method=self.selectMod,
+                              parent=self.modsList)
         self.modsButtons.append(modButton)
         self.modsList.layout().addWidget(modButton)
 
-        if not self.selectedModButton:
+        if not self.selectedModButton and not getattr(self, "_defer_selection", False):
             modButton.select()
 
     def addMod(self,
@@ -792,6 +803,23 @@ class Mods(QWidget):
                 if btn.modClass.hash == hash:
                     btn.updateData()
                     break
+
+    def removeMod(self, mod_hash: str):
+        """Remove one source from the visible list without a full rescan."""
+        mod = self.modsSources.pop(mod_hash, None)
+        if mod is None:
+            return
+
+        button = next((b for b in self.modsButtons if b.modClass.hash == mod_hash), None)
+        if button is not None:
+            was_selected = button is self.selectedModButton
+            button.cleanup()
+            self.modsButtons.remove(button)
+            if was_selected:
+                self.selectedModButton = None
+                if self.modsButtons:
+                    self.modsButtons[0].select()
+        self.applySort(self.currentSortField, self.currentSortReverse)
 
     def removeAllMods(self):
         ClearFrame(self.modsList)

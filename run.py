@@ -1,6 +1,8 @@
 import os
 import sys
 
+_DLL_DIRECTORY_HANDLES = []
+
 # Detect frozen/compiled binary: supports both PyInstaller (sys.frozen) and Nuitka (__compiled__)
 _is_nuitka = False
 try:
@@ -16,17 +18,22 @@ if _IS_FROZEN:
         _base_dir = sys._MEIPASS
     else:
         _base_dir = os.path.dirname(os.path.abspath(__file__))
-    os.environ['PATH'] = _base_dir + os.pathsep + os.path.join(_base_dir, 'PySide6') + os.pathsep + os.path.join(_base_dir, 'shiboken6') + os.pathsep + os.environ.get('PATH', '')
+    _runtime_dll_dirs = [
+        _base_dir,
+        os.path.join(_base_dir, '_jpype'),
+        os.path.join(_base_dir, 'PySide6'),
+        os.path.join(_base_dir, 'shiboken6'),
+    ]
+    os.environ['PATH'] = os.pathsep.join(
+        [path for path in _runtime_dll_dirs if os.path.isdir(path)]
+        + [os.environ.get('PATH', '')]
+    )
     if hasattr(os, 'add_dll_directory'):
-        try:
-            os.add_dll_directory(_base_dir)
-        except Exception:
-            pass
-        for _sub in ['PySide6', 'shiboken6']:
-            _sub_dir = os.path.join(_base_dir, _sub)
-            if os.path.isdir(_sub_dir):
+        for _dll_dir in _runtime_dll_dirs:
+            if os.path.isdir(_dll_dir):
                 try:
-                    os.add_dll_directory(_sub_dir)
+                    # Windows removes this search path when the handle closes.
+                    _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(_dll_dir))
                 except Exception:
                     pass
     # Do not call SetDllDirectoryW here. It replaces the normal Windows DLL
