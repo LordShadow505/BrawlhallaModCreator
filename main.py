@@ -49,6 +49,15 @@ except Exception as e:
     print(f"Error importing core: {CORE_IMPORT_ERROR}")
     traceback.print_exc()
 
+# Install the shared audio helper before any mod operation starts.  The core
+# resolver is safe for both source execution and packaged applications and
+# leaves the rest of the creator usable when the optional tool is unavailable.
+if core is not None:
+    try:
+        core.ensure_runtime_audio_tool()
+    except Exception as e:
+        print(f"Warning: could not prepare wwiseutil.exe: {e}")
+
 from PySide6.QtGui import QIcon, QFontDatabase, QFont, QPixmap, QPainter, QColor
 from PySide6.QtCore import QTimer, QSize, Qt, Signal
 from PySide6.QtWidgets import QApplication, QMainWindow, QFrame, QVBoxLayout, QLabel, QSplashScreen
@@ -272,6 +281,12 @@ class ModCreator(QMainWindow):
             cacheSize=cacheSize
         )
         self.bulkOperationCount = 0
+        # Keep compiler diagnostics per window and support Explorer-style
+        # choices for source files that are not recognised as game assets.
+        self.errors = []
+        self._pending_unknown_file_errors = []
+        self._pending_other_errors = []
+        self._unknown_file_dialog_bypass = False
         # Ignore duplicate conflict searches caused by rapid clicks/typing;
         # one source install may have only one active conflict decision.
         self._conflict_request_hash = None
@@ -287,6 +302,11 @@ class ModCreator(QMainWindow):
         self._source_data_received = False
         self._source_ui_initialized = False
         self._pending_mod_flags = None
+        # A build publishes a new .bmod asynchronously.  The next mod-data
+        # response carries the authoritative ``modFileExist`` flag; remember
+        # which response must also rebuild the selected action row so a newly
+        # created Install button is not missed.
+        self._refresh_buttons_after_mod_data = set()
         self.setLoadingScreen()
         self.header.setSettingsButtonPressed(self.setSettingsScreen)
         self.header.setModsButtonPressed(lambda: self.checkUnsavedSettings(self.setModsScreen))
@@ -445,6 +465,12 @@ class ModCreator(QMainWindow):
                                 installed=modData.get("installed", False),
                                 modFileExist=modData.get("modFileExist", False))
 
+        refresh_buttons = bool(
+            self._refresh_buttons_after_mod_data.intersection(
+                {str(data.get("hash", "")) for data in (mod_data or [])}
+            )
+        )
+
         if not self._source_ui_initialized:
             # The first metadata response assembles the list once.  Later
             # responses (build/install/uninstall) only change per-mod flags;
@@ -453,7 +479,12 @@ class ModCreator(QMainWindow):
             self._source_ui_initialized = True
             self.mods.updateAll()
         elif self.mods.selectedModButton is not None:
-            self.mods.updateAll(update_buttons=False)
+            self.mods.updateAll(update_buttons=refresh_buttons)
+
+        if refresh_buttons:
+            self._refresh_buttons_after_mod_data.difference_update(
+                {str(data.get("hash", "")) for data in (mod_data or [])}
+            )
         if hasattr(self, 'loading'):
             self.loading.setStep(4, "success", "Mods loaded")
             self.loading.setStep(5, "success")
@@ -663,9 +694,42 @@ class ModCreator(QMainWindow):
                             if elapsed is not None else "Build completed."))
                 self.showErrorNotifications()
 
+                # ``getModsData`` is asynchronous.  The source card still has
+                # the pre-build ``modFileExist`` value when this notification
+                # arrives, so defer rebuilding Install/Reinstall until the
+                # authoritative flags response has updated that card.
+                self._refresh_buttons_after_mod_data.add(str(modHash))
+
                 # The worker already reloads the newly published bmod before
                 # emitting Finished. Avoid opening/checking it a second time.
                 self.controller.getModsData()
+
+                # Make the action row respond immediately as well.  The
+                # asynchronous flags response below is still authoritative,
+                # but a successful build already guarantees that the source's
+                # compiled path should now exist.
+                source_mod = self.mods.modsSources.get(modHash)
+                if source_mod is not None:
+                    # The Creator UI uses a lightweight ModClass that only
+                    # exposes ``modSourcesPath``; the core ModSource has a
+                    # ``modPath`` attribute.  Support both shapes so a build
+                    # completion can never abort the controller handler with
+                    # AttributeError.
+                    compiled_path = getattr(source_mod, "modPath", "") or ""
+                    if not compiled_path:
+                        source_path = getattr(source_mod, "modSourcesPath", "") or ""
+                        source_name = os.path.basename(os.path.normpath(source_path))
+                        if source_name and self.modsPath:
+                            compiled_path = os.path.join(self.modsPath, f"{source_name}.bmod")
+
+                    # A successful CompileModSourcesFinished means the core
+                    # published the build.  If the UI cannot resolve a path
+                    # (for example during a settings migration), trust that
+                    # completion and let the following GetModsData response
+                    # provide the definitive flag.
+                    source_mod.modFileExist = (
+                        os.path.isfile(compiled_path) if compiled_path else True
+                    )
 
                 # Update UI for this mod
                 for btn in self.mods.modsButtons:
@@ -673,7 +737,7 @@ class ModCreator(QMainWindow):
                         btn.updateData()
                         break
                 if self.mods.selectedModButton and self.mods.selectedModButton.modClass.hash == modHash:
-                    self.mods.updateAll(update_buttons=False)
+                    self.mods.updateAll(update_buttons=True)
 
                 self.bulkOperationCount = 0
                 self.progressDialog.setTitle("Build completed")
@@ -824,7 +888,69 @@ class ModCreator(QMainWindow):
                                                                  '<color="#ff5050">This folder already exists!</color>'))
                 # self.controller.reloadModsSources()
 
+    def _showUnknownFileChoice(self):
+        """Ask how to handle one unknown source file without blocking the worker."""
+        if not self._pending_unknown_file_errors:
+            self.errors = list(self._pending_other_errors)
+            self._pending_other_errors = []
+            self.showErrorNotifications()
+            return
+
+        notification = self._pending_unknown_file_errors[0]
+        file_name = notification.args[1] if len(notification.args) > 1 else "<unknown>"
+        if self.progressDialog.isShown():
+            self.progressDialog.hide()
+        self.buttonsDialog.setTitle("Unknown Source File")
+        self.buttonsDialog.setContent(
+            f"Unknown file '{file_name}'.\n\n"
+            "This file is not recognised as a Brawlhalla asset and will not be included in the mod.\n\n"
+            "The build is already complete. Choose Skip to ignore this file, Skip All to ignore all unknown files, or Cancel to keep the diagnostic visible."
+        )
+
+        def finish(skip_all=False, cancel=False):
+            if skip_all:
+                self._pending_unknown_file_errors = []
+            elif cancel:
+                # Cancel the choice, preserving unknown-file diagnostics in the
+                # normal error report.  The build itself has already finished.
+                self._pending_other_errors.extend(self._pending_unknown_file_errors)
+                self._pending_unknown_file_errors = []
+                self._unknown_file_dialog_bypass = True
+            else:
+                self._pending_unknown_file_errors.pop(0)
+
+            self.buttonsDialog.hide()
+            if self._pending_unknown_file_errors:
+                self._showUnknownFileChoice()
+            else:
+                self.errors = list(self._pending_other_errors)
+                self._pending_other_errors = []
+                self.showErrorNotifications()
+
+        self.buttonsDialog.setButtons([
+            ("Skip", lambda: finish()),
+            ("Skip All", lambda: finish(skip_all=True)),
+            ("Cancel", lambda: finish(cancel=True)),
+        ])
+        self.buttonsDialog.show()
+
     def showErrorNotifications(self):
+        if self.errors and not self._unknown_file_dialog_bypass:
+            unknown_files = [
+                notification for notification in self.errors
+                if notification.notificationType == NotificationType.CompileModSourcesUnknownFile
+            ]
+            if unknown_files:
+                self._pending_unknown_file_errors = unknown_files
+                self._pending_other_errors = [
+                    notification for notification in self.errors
+                    if notification.notificationType != NotificationType.CompileModSourcesUnknownFile
+                ]
+                self.errors = []
+                self._showUnknownFileChoice()
+                return
+
+        self._unknown_file_dialog_bypass = False
         if self.errors:
             errors = []
             errorsNotifications = self.errors.copy()
@@ -1071,6 +1197,7 @@ class ModCreator(QMainWindow):
                         filename.startswith("core."),
                         filename.startswith("config_"),
                         filename == "files.json",
+                        filename.casefold() in {"wwiseutil.exe", "modloaderclient.exe"},
                         filename.endswith(".ico"),
                         filename.endswith(".png"),
                         filename.endswith(".reg")
@@ -1309,6 +1436,7 @@ class ModCreator(QMainWindow):
         self._pending_source_data = []
         self._pending_source_index = 0
         self._pending_mod_flags = None
+        self._refresh_buttons_after_mod_data.clear()
         self._source_loading = False
         self._source_data_received = False
         self._source_ui_initialized = False
